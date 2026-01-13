@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PilotStay - Host Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#09090b;color:#fafafa;min-height:100vh}
+.loading-screen{position:fixed;inset:0;background:#09090b;display:flex;align-items:center;justify-content:center;z-index:9999}
+.spinner{width:40px;height:40px;border:3px solid #27272a;border-top-color:#f97316;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sidebar{width:240px;background:#131316;border-right:1px solid #27272a;position:fixed;height:100vh;display:flex;flex-direction:column}
+.sidebar-header{padding:20px;border-bottom:1px solid #27272a;display:flex;align-items:center;gap:12px}
+.sidebar-logo{width:40px;height:40px;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.sidebar-title{font-weight:700;font-size:16px}
+.sidebar-sub{font-size:11px;color:#f97316}
+.nav{flex:1;padding:12px;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;cursor:pointer;color:#a1a1aa;margin-bottom:4px;transition:all .2s;font-size:13px}
+.nav-item:hover,.nav-item.active{background:#1f1f23;color:#fafafa}
+.nav-item.active{background:#f9731620;color:#f97316}
+.nav-icon{font-size:18px}
+.user-section{padding:16px;border-top:1px solid #27272a}
+.user-info{display:flex;align-items:center;gap:10px;padding:10px;background:#18181b;border-radius:10px}
+.user-avatar{width:36px;height:36px;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.user-name{font-size:13px;font-weight:600}
+.user-email{font-size:10px;color:#71717a}
+.logout-btn{width:100%;margin-top:10px;padding:10px;background:#27272a;border:none;border-radius:8px;color:#a1a1aa;font-size:12px;cursor:pointer;transition:all .2s}
+.logout-btn:hover{background:#3f3f46;color:#fafafa}
+.main{margin-left:240px;padding:24px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.header h1{font-size:24px;font-weight:700}
+.header p{color:#71717a;font-size:13px;margin-top:4px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:#131316;border:1px solid #27272a;border-radius:12px;padding:20px}
+.stat-icon{font-size:24px;margin-bottom:12px}
+.stat-value{font-size:28px;font-weight:700}
+.stat-label{font-size:12px;color:#71717a;margin-top:4px}
+.card{background:#131316;border:1px solid #27272a;border-radius:12px;padding:20px;margin-bottom:16px}
+.card-title{font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.empty-state{text-align:center;padding:40px;color:#71717a}
+.empty-icon{font-size:48px;margin-bottom:12px}
+.btn{padding:12px 20px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-primary{background:linear-gradient(135deg,#f97316,#fb923c);color:#fff}
+.btn:hover{transform:scale(1.02)}
+.booking-item{display:flex;align-items:center;gap:16px;padding:16px;background:#18181b;border-radius:10px;margin-bottom:10px}
+.booking-icon{font-size:32px}
+.booking-info{flex:1}
+.booking-guest{font-weight:600;font-size:14px}
+.booking-details{font-size:12px;color:#71717a;margin-top:4px}
+.booking-price{font-weight:700;font-size:16px;color:#22c55e}
+.property-item{display:flex;align-items:center;gap:12px;padding:12px;background:#18181b;border-radius:8px;margin-bottom:8px}
+.property-icon{font-size:24px}
+.property-name{font-weight:600;font-size:13px}
+.property-address{font-size:11px;color:#71717a}
+.tag{padding:4px 10px;border-radius:20px;font-size:10px;font-weight:600}
+.tag-green{background:#22c55e20;color:#22c55e}
+.tag-orange{background:#f9731620;color:#f97316}
+</style>
+</head>
+<body>
+<div class="loading-screen" id="loading">
+  <div class="spinner"></div>
+</div>
+
+<div id="app" style="display:none">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🏠</div>
+      <div>
+        <div class="sidebar-title">PilotStay</div>
+        <div class="sidebar-sub">Host Dashboard</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item active" data-page="dashboard"><span class="nav-icon">📊</span>Dashboard</div>
+      <div class="nav-item" data-page="bookings"><span class="nav-icon">📅</span>Buchungen</div>
+      <div class="nav-item" data-page="properties"><span class="nav-icon">🏠</span>Objekte</div>
+      <div class="nav-item" data-page="partners"><span class="nav-icon">🤝</span>Partner</div>
+      <div class="nav-item" data-page="messages"><span class="nav-icon">💬</span>Nachrichten</div>
+      <div class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span>Einstellungen</div>
+    </nav>
+    <div class="user-section">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="user-name">Laden...</div>
+          <div class="user-email" id="user-email">...</div>
+        </div>
+      </div>
+      <button class="logout-btn" id="logout-btn">🚪 Abmelden</button>
+    </div>
+  </aside>
+  
+  <main class="main">
+    <div class="header">
+      <div>
+        <h1 id="greeting">Willkommen! 👋</h1>
+        <p id="date"></p>
+      </div>
+      <button class="btn btn-primary" id="add-property-btn">+ Objekt hinzufügen</button>
+    </div>
+    
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div class="stat-value" id="stat-revenue">€0</div>
+        <div class="stat-label">Umsatz diesen Monat</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📅</div>
+        <div class="stat-value" id="stat-bookings">0</div>
+        <div class="stat-label">Aktive Buchungen</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🏠</div>
+        <div class="stat-value" id="stat-properties">0</div>
+        <div class="stat-label">Objekte</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value" id="stat-rating">-</div>
+        <div class="stat-label">Durchschnittsbewertung</div>
+      </div>
+    </div>
+    
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">📅 Kommende Buchungen</div>
+        <div id="bookings-list">
+          <div class="empty-state">
+            <div class="empty-icon">📭</div>
+            <p>Keine Buchungen vorhanden</p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">🏠 Deine Objekte</div>
+        <div id="properties-list">
+          <div class="empty-state">
+            <div class="empty-icon">🏚️</div>
+            <p>Noch keine Objekte angelegt</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://uamlcodalgibboftvhqp.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhbWxjb2RhbGdpYmJvZnR2aHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTUyNDIsImV4cCI6MjA4Mzg5MTI0Mn0.t7OwT2MjL1CVdQTQAOaA1HwowFpaZsVZcqjTFHuTL1w';
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let user = null;
+let profile = null;
+let properties = [];
+let bookings = [];
+
+async function init() {
+  const { data: { session } } = await db.auth.getSession();
+  
+  if (!session) {
+    window.location.href = 'auth.html';
+    return;
+  }
+  
+  user = session.user;
+  
+  const { data: profileData } = await db.from('profiles').select('*').eq('id', user.id).single();
+  profile = profileData;
+  
+  if (profile?.role !== 'host' && profile?.role !== 'admin') {
+    window.location.href = 'partner-dashboard.html';
+    return;
+  }
+  
+  const { data: propertiesData } = await db.from('properties').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
+  properties = propertiesData || [];
+  
+  const { data: bookingsData } = await db.from('bookings').select('*, properties(name)').eq('host_id', user.id).gte('check_out', new Date().toISOString().split('T')[0]).order('check_in', { ascending: true }).limit(5);
+  bookings = bookingsData || [];
+  
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  
+  renderUI();
+}
+
+function renderUI() {
+  const firstName = profile?.first_name || user?.email?.split('@')[0] || 'User';
+  document.getElementById('user-avatar').textContent = firstName[0].toUpperCase();
+  document.getElementById('user-name').textContent = firstName + (profile?.last_name ? ' ' + profile.last_name : '');
+  document.getElementById('user-email').textContent = user.email;
+  document.getElementById('greeting').textContent = `Willkommen, ${firstName}! 👋`;
+  
+  document.getElementById('date').textContent = new Date().toLocaleDateString('de-DE', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+  
+  const totalRevenue = bookings.reduce((sum, b) => sum + (b.total_price || 0), 0);
+  document.getElementById('stat-revenue').textContent = '€' + totalRevenue.toLocaleString('de-DE');
+  document.getElementById('stat-bookings').textContent = bookings.filter(b => b.status === 'confirmed' || b.status === 'active').length;
+  document.getElementById('stat-properties').textContent = properties.length;
+  
+  const propertiesList = document.getElementById('properties-list');
+  if (properties.length > 0) {
+    propertiesList.innerHTML = properties.slice(0, 5).map(p => `
+      <div class="property-item">
+        <div class="property-icon">${p.property_type === 'house' ? '🏡' : '🏢'}</div>
+        <div style="flex:1">
+          <div class="property-name">${p.name}</div>
+          <div class="property-address">${p.city || 'Keine Adresse'}</div>
+        </div>
+        <span class="tag ${p.active ? 'tag-green' : 'tag-orange'}">${p.active ? 'Aktiv' : 'Inaktiv'}</span>
+      </div>
+    `).join('');
+  }
+  
+  const bookingsList = document.getElementById('bookings-list');
+  if (bookings.length > 0) {
+    bookingsList.innerHTML = bookings.map(b => `
+      <div class="booking-item">
+        <div class="booking-icon">👤</div>
+        <div class="booking-info">
+          <div class="booking-guest">${b.guest_name}</div>
+          <div class="booking-details">${b.properties?.name || 'Objekt'} · ${new Date(b.check_in).toLocaleDateString('de-DE')} - ${new Date(b.check_out).toLocaleDateString('de-DE')}</div>
+        </div>
+        <div class="booking-price">€${b.total_price || 0}</div>
+      </div>
+    `).join('');
+  }
+}
+
+document.getElementById('add-property-btn').addEventListener('click', async () => {
+  const name = prompt('Name des Objekts:');
+  if (!name) return;
+  const city = prompt('Stadt:');
+  
+  const { data, error } = await db.from('properties').insert({
+    host_id: user.id,
+    name: name,
+    city: city,
+    property_type: 'apartment',
+    active: true
+  }).select().single();
+  
+  if (error) {
+    alert('Fehler: ' + error.message);
+  } else {
+    properties.unshift(data);
+    renderUI();
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await db.auth.signOut();
+  window.location.href = 'auth.html';
+});
+
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+  });
+});
+
+init();
+</script>
+</body>
+</html>
