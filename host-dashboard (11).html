@@ -1,0 +1,3355 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PilotStay - Host Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#09090b;color:#fafafa;min-height:100vh}
+.loading-screen{position:fixed;inset:0;background:#09090b;display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:16px}
+.spinner{width:48px;height:48px;border:3px solid #27272a;border-top-color:#f97316;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.pulse{animation:pulse 2s infinite}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Tutorial - Interactive Spotlight */
+#tutorial-overlay{position:fixed;inset:0;z-index:5000}
+#tutorial-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:5001;transition:background .3s}
+#tutorial-backdrop.active{background:rgba(0,0,0,.8)}
+#tutorial-spotlight{position:absolute;z-index:5002;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.85), 0 0 40px rgba(249,115,22,.6);transition:all .4s ease;pointer-events:none}
+#tutorial-tooltip{position:fixed;z-index:5003;background:linear-gradient(145deg,#1a1a1f,#131316);border:2px solid #f97316;border-radius:16px;padding:28px;width:400px;max-width:90vw;animation:tutorialFadeIn .4s ease;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+@keyframes tutorialFadeIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes tutorialPulse{0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,.85), 0 0 40px rgba(249,115,22,.6)}50%{box-shadow:0 0 0 9999px rgba(0,0,0,.85), 0 0 60px rgba(249,115,22,.8)}}
+#tutorial-spotlight.pulse{animation:tutorialPulse 2s infinite}
+#tutorial-arrow{position:absolute;width:0;height:0;border:12px solid transparent}
+#tutorial-arrow.left{right:100%;top:30px;border-right-color:#f97316}
+#tutorial-arrow.right{left:100%;top:30px;border-left-color:#f97316}
+#tutorial-arrow.top{bottom:100%;left:30px;border-bottom-color:#f97316}
+#tutorial-arrow.bottom{top:100%;left:30px;border-top-color:#f97316}
+#tutorial-arrow.hidden{display:none}
+.tutorial-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.tutorial-icon{font-size:36px;line-height:1}
+.tutorial-step-label{font-size:11px;color:#f97316;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.tutorial-title{font-size:20px;font-weight:700;margin-bottom:10px;color:#fafafa}
+.tutorial-desc{color:#a1a1aa;font-size:14px;line-height:1.7;margin-bottom:20px}
+.tutorial-progress{display:flex;gap:6px;margin-bottom:20px;justify-content:center}
+.tutorial-dot{width:10px;height:10px;border-radius:50%;background:#27272a;transition:all .3s}
+.tutorial-dot.done{background:#22c55e}
+.tutorial-dot.active{background:#f97316;transform:scale(1.4);box-shadow:0 0 10px rgba(249,115,22,.5)}
+.tutorial-actions{display:flex;gap:12px;align-items:center}
+.tutorial-skip{background:none;border:none;color:#71717a;font-size:13px;cursor:pointer;padding:8px 16px;transition:color .2s}
+.tutorial-skip:hover{color:#fafafa}
+.tutorial-next{flex:1;padding:14px 24px;background:linear-gradient(135deg,#f97316,#fb923c);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+.tutorial-next:hover{transform:scale(1.02);box-shadow:0 4px 20px rgba(249,115,22,.4)}
+.tutorial-highlight{position:relative;z-index:5002}
+
+/* Sidebar */
+.sidebar{width:260px;background:#131316;border-right:1px solid #27272a;position:fixed;height:100vh;display:flex;flex-direction:column;z-index:100}
+.sidebar-header{padding:20px;border-bottom:1px solid #27272a;display:flex;align-items:center;gap:12px}
+.sidebar-logo{width:44px;height:44px;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.sidebar-title{font-weight:700;font-size:18px}
+.sidebar-sub{font-size:11px;color:#f97316}
+.nav{flex:1;padding:16px;overflow-y:auto}
+.nav-section{font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:1px;padding:12px 14px 8px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;cursor:pointer;color:#a1a1aa;margin-bottom:4px;transition:all .2s;font-size:13px;position:relative}
+.nav-item:hover{background:#1f1f23;color:#fafafa}
+.nav-item.active{background:#f9731620;color:#f97316}
+.nav-icon{font-size:18px;width:24px;text-align:center}
+.nav-badge{position:absolute;right:12px;min-width:20px;height:20px;background:#ef4444;border-radius:10px;font-size:10px;color:#fff;display:flex;align-items:center;justify-content:center}
+.user-section{padding:16px;border-top:1px solid #27272a}
+.user-card{display:flex;align-items:center;gap:12px;padding:12px;background:#18181b;border-radius:12px;margin-bottom:12px}
+.user-avatar{width:40px;height:40px;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.user-name{font-size:14px;font-weight:600}
+.user-plan{font-size:11px;color:#a1a1aa}
+.logout-btn{width:100%;padding:10px;background:#27272a;border:none;border-radius:8px;color:#a1a1aa;font-size:12px;cursor:pointer}
+.logout-btn:hover{background:#3f3f46;color:#fafafa}
+
+/* Main */
+.main{margin-left:260px;min-height:100vh}
+.header{padding:24px 32px;border-bottom:1px solid #27272a;display:flex;justify-content:space-between;align-items:center;background:#09090b;position:sticky;top:0;z-index:50}
+.header-title{font-size:24px;font-weight:700}
+.header-subtitle{color:#71717a;font-size:13px;margin-top:4px}
+.content{padding:32px}
+
+/* Cards */
+.card{background:#131316;border:1px solid #27272a;border-radius:14px;padding:20px;margin-bottom:16px;transition:all .2s}
+.card:hover{border-color:#3f3f46}
+.card-title{font-size:14px;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.card-ai{background:linear-gradient(135deg,#131316,#1a1a2e);border-color:#8b5cf650}
+.property-card{display:flex;flex-direction:column;min-height:240px}
+.property-card:hover{border-color:#f97316;box-shadow:0 4px 20px rgba(249,115,22,.1)}
+
+/* Stats */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:#131316;border:1px solid #27272a;border-radius:14px;padding:24px;text-align:center}
+.stat-icon{font-size:28px;margin-bottom:12px}
+.stat-value{font-size:32px;font-weight:700}
+.stat-label{font-size:12px;color:#71717a;margin-top:6px}
+.stat-change{font-size:11px;margin-top:8px;padding:4px 8px;border-radius:20px;display:inline-block}
+.stat-change.up{background:#22c55e20;color:#22c55e}
+.stat-change.down{background:#ef444420;color:#ef4444}
+
+/* Grids */
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+
+/* Buttons */
+.btn{padding:12px 20px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all .2s}
+.btn:hover{transform:scale(1.02)}
+.btn-primary{background:linear-gradient(135deg,#f97316,#fb923c);color:#fff}
+.btn-success{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}
+.btn-secondary{background:#27272a;color:#fafafa;border:1px solid #3f3f46}
+.btn-ai{background:linear-gradient(135deg,#8b5cf6,#a78bfa);color:#fff}
+.btn-sm{padding:8px 14px;font-size:12px}
+
+/* Inputs */
+.input{width:100%;padding:14px 16px;background:#18181b;border:1px solid #27272a;border-radius:10px;color:#fafafa;font-size:14px;transition:all .2s}
+.input:focus{outline:none;border-color:#f97316}
+.input::placeholder{color:#52525b}
+.label{display:block;font-size:12px;color:#a1a1aa;margin-bottom:8px}
+.select{width:100%;padding:14px 16px;background:#18181b;border:1px solid #27272a;border-radius:10px;color:#fafafa;font-size:14px}
+
+/* Tags */
+.tag{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
+.tag-green{background:#22c55e20;color:#22c55e}
+.tag-orange{background:#f9731620;color:#f97316}
+.tag-blue{background:#3b82f620;color:#3b82f6}
+.tag-purple{background:#8b5cf620;color:#8b5cf6}
+.tag-red{background:#ef444420;color:#ef4444}
+
+/* Lists */
+.list-item{display:flex;align-items:center;gap:16px;padding:16px;background:#18181b;border-radius:12px;margin-bottom:10px;transition:all .2s}
+.list-item:hover{background:#1f1f23}
+.list-icon{font-size:28px}
+.list-info{flex:1}
+.list-title{font-weight:600;font-size:14px}
+.list-subtitle{font-size:12px;color:#71717a;margin-top:2px}
+
+/* Empty State */
+.empty-state{text-align:center;padding:60px 20px;color:#71717a}
+.empty-icon{font-size:56px;margin-bottom:16px}
+.empty-title{font-size:16px;font-weight:600;color:#fafafa;margin-bottom:8px}
+.empty-desc{font-size:13px;margin-bottom:20px}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal{background:#131316;border:1px solid #27272a;border-radius:16px;padding:28px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+
+/* Table */
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{padding:14px 16px;text-align:left;border-bottom:1px solid #27272a}
+.table th{font-size:11px;color:#71717a;text-transform:uppercase}
+.table tr:hover td{background:#18181b}
+
+/* Chat */
+.chat-container{display:grid;grid-template-columns:280px 1fr;gap:20px;height:calc(100vh - 200px)}
+.chat-list{background:#131316;border:1px solid #27272a;border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.chat-list-header{padding:16px;border-bottom:1px solid #27272a;font-weight:600}
+.chat-list-items{flex:1;overflow-y:auto}
+.chat-item{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;border-bottom:1px solid #27272a20;transition:all .2s}
+.chat-item:hover,.chat-item.active{background:#1f1f23}
+.chat-item.active{border-left:3px solid #f97316}
+.chat-avatar{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.chat-preview{flex:1;min-width:0}
+.chat-name{font-weight:600;font-size:13px;margin-bottom:2px}
+.chat-last{font-size:11px;color:#71717a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-time{font-size:10px;color:#52525b}
+.chat-unread{min-width:20px;height:20px;background:#ef4444;border-radius:10px;font-size:10px;color:#fff;display:flex;align-items:center;justify-content:center}
+.chat-window{background:#131316;border:1px solid #27272a;border-radius:14px;display:flex;flex-direction:column}
+.chat-header{padding:16px 20px;border-bottom:1px solid #27272a;display:flex;align-items:center;gap:12px}
+.chat-messages{flex:1;overflow-y:auto;padding:20px}
+.message{max-width:75%;margin-bottom:16px;display:flex;flex-direction:column}
+.message.sent{align-self:flex-end;align-items:flex-end}
+.message.received{align-self:flex-start;align-items:flex-start}
+.message-bubble{padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.5}
+.message.sent .message-bubble{background:linear-gradient(135deg,#f97316,#fb923c);color:#fff;border-bottom-right-radius:4px}
+.message.received .message-bubble{background:#27272a;border-bottom-left-radius:4px}
+.message-ai .message-bubble{background:linear-gradient(135deg,#8b5cf6,#a78bfa);color:#fff}
+.message-time{font-size:10px;color:#52525b;margin-top:4px}
+.chat-input{padding:16px;border-top:1px solid #27272a;display:flex;gap:12px}
+.chat-input input{flex:1}
+.smart-replies{padding:12px 16px;border-top:1px solid #27272a;background:#18181b}
+.smart-replies-title{font-size:11px;color:#8b5cf6;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.smart-reply-btn{padding:8px 14px;background:#27272a;border:1px solid #3f3f46;border-radius:20px;color:#fafafa;font-size:12px;cursor:pointer;margin-right:8px;margin-bottom:8px;transition:all .2s}
+.smart-reply-btn:hover{background:#8b5cf620;border-color:#8b5cf6}
+
+/* Reviews */
+.review-card{background:#18181b;border-radius:12px;padding:20px;margin-bottom:16px}
+.review-header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.review-avatar{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;background:linear-gradient(135deg,#3b82f6,#60a5fa)}
+.review-info{flex:1}
+.review-name{font-weight:600;font-size:14px}
+.review-meta{font-size:11px;color:#71717a;margin-top:2px}
+.review-stars{color:#fbbf24}
+.review-text{font-size:14px;line-height:1.6;margin-bottom:16px}
+.review-reply{background:#131316;border-radius:10px;padding:14px;margin-top:12px}
+.review-reply-label{font-size:11px;color:#71717a;margin-bottom:6px}
+.ai-suggestion{background:linear-gradient(135deg,#8b5cf620,#8b5cf610);border:1px solid #8b5cf640;border-radius:12px;padding:16px;margin-top:12px}
+.ai-suggestion-header{font-size:12px;color:#8b5cf6;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.ai-suggestion-text{font-size:13px;line-height:1.6;margin-bottom:12px}
+
+/* Pricing */
+.pricing-card{background:#18181b;border-radius:12px;padding:20px}
+.pricing-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.pricing-property{font-weight:600;font-size:16px}
+.pricing-current{font-size:24px;font-weight:700}
+.pricing-suggestion{display:flex;align-items:center;gap:12px;padding:16px;background:linear-gradient(135deg,#22c55e10,#22c55e05);border:1px solid #22c55e40;border-radius:10px;margin-top:12px}
+.pricing-arrow{font-size:24px}
+.pricing-new{font-size:28px;font-weight:700;color:#22c55e}
+.pricing-reason{font-size:12px;color:#a1a1aa;margin-top:4px}
+.pricing-factors{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.pricing-calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:16px}
+.cal-header{font-size:10px;color:#71717a;text-align:center;padding:8px}
+.cal-day{aspect-ratio:1;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;cursor:pointer;transition:all .2s}
+.cal-day:hover{background:#27272a}
+.cal-day.low{background:#22c55e20;color:#22c55e}
+.cal-day.medium{background:#f9731620;color:#f97316}
+.cal-day.high{background:#ef444420;color:#ef4444}
+.cal-day .cal-price{font-size:9px;margin-top:2px}
+
+/* Toggle */
+.toggle{width:48px;height:26px;border-radius:13px;background:#27272a;border:none;cursor:pointer;position:relative;transition:all .2s}
+.toggle.active{background:#22c55e}
+.toggle-knob{width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:all .2s}
+.toggle.active .toggle-knob{left:25px}
+
+/* Responsive */
+@media(max-width:1200px){.stats-grid{grid-template-columns:repeat(2,1fr)}.chat-container{grid-template-columns:1fr}}
+@media(max-width:900px){.grid-2,.grid-3{grid-template-columns:1fr}}
+@media(max-width:768px){.sidebar{display:none}.main{margin-left:0}}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading-screen" id="loading">
+  <div class="spinner"></div>
+  <div style="color:#71717a">PilotStay wird geladen...</div>
+</div>
+
+<!-- Tutorial Spotlight Overlay -->
+<div id="tutorial-overlay" style="display:none">
+  <div id="tutorial-backdrop"></div>
+  <div id="tutorial-spotlight"></div>
+  <div id="tutorial-tooltip">
+    <div id="tutorial-arrow"></div>
+    <div class="tutorial-header">
+      <span id="tutorial-step-icon" class="tutorial-icon">👋</span>
+      <span id="tutorial-step-label" class="tutorial-step-label">Schritt 1 von 10</span>
+    </div>
+    <div id="tutorial-step-title" class="tutorial-title">Willkommen!</div>
+    <div id="tutorial-step-desc" class="tutorial-desc">Beschreibung</div>
+    <div id="tutorial-progress" class="tutorial-progress"></div>
+    <div class="tutorial-actions">
+      <button id="tutorial-skip" class="tutorial-skip">Überspringen</button>
+      <button id="tutorial-next" class="tutorial-next">Weiter →</button>
+    </div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">🏠</div>
+      <div>
+        <div class="sidebar-title">PilotStay</div>
+        <div class="sidebar-sub">Host Dashboard</div>
+      </div>
+    </div>
+    
+    <nav class="nav">
+      <div class="nav-section">Hauptmenü</div>
+      <div class="nav-item active" data-page="dashboard">
+        <span class="nav-icon">📊</span>Dashboard
+      </div>
+      <div class="nav-item" data-page="bookings">
+        <span class="nav-icon">📅</span>Buchungen
+      </div>
+      <div class="nav-item" data-page="properties">
+        <span class="nav-icon">🏠</span>Objekte
+      </div>
+      <div class="nav-item" data-page="partners">
+        <span class="nav-icon">🤝</span>Partner
+      </div>
+      
+      <div class="nav-section">KI-Tools</div>
+      <div class="nav-item" data-page="messages">
+        <span class="nav-icon">💬</span>Nachrichten
+        <span class="nav-badge" id="msg-badge">3</span>
+      </div>
+      <div class="nav-item" data-page="reviews">
+        <span class="nav-icon">⭐</span>Bewertungen
+        <span class="nav-badge" style="background:#8b5cf6">2</span>
+      </div>
+      <div class="nav-item" data-page="pricing">
+        <span class="nav-icon">💰</span>Preisoptimierung
+      </div>
+      
+      <div class="nav-section">System</div>
+      <div class="nav-item" data-page="automation">
+        <span class="nav-icon">🤖</span>Automatisierung
+      </div>
+      <div class="nav-item" data-page="settings">
+        <span class="nav-icon">⚙️</span>Einstellungen
+      </div>
+    </nav>
+    
+    <div class="user-section">
+      <div class="user-card">
+        <div class="user-avatar" id="user-avatar">?</div>
+        <div>
+          <div class="user-name" id="user-name">Laden...</div>
+          <div class="user-plan">⭐ Starter Plan</div>
+        </div>
+      </div>
+      <button class="logout-btn" id="logout-btn">🚪 Abmelden</button>
+    </div>
+  </aside>
+  
+  <!-- Main -->
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title" id="page-title">Dashboard</div>
+        <div class="header-subtitle" id="page-subtitle"></div>
+      </div>
+      <div id="header-actions"></div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal" style="display:none">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script>
+// =====================
+// SUPABASE
+// =====================
+const db = window.supabase.createClient(
+  'https://uamlcodalgibboftvhqp.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhbWxjb2RhbGdpYmJvZnR2aHFwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzMTUyNDIsImV4cCI6MjA4Mzg5MTI0Mn0.t7OwT2MjL1CVdQTQAOaA1HwowFpaZsVZcqjTFHuTL1w'
+);
+
+// =====================
+// STATE
+// =====================
+let user, profile, currentPage = 'dashboard';
+let properties = [], bookings = [];
+
+// Smoobu Integration
+const SMOOBU_PROXY_URL = 'https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy';
+
+let smoobuConfig = {
+  apiKey: localStorage.getItem('smoobu_api_key') || '',
+  connected: localStorage.getItem('smoobu_connected') === 'true',
+  lastSync: localStorage.getItem('smoobu_last_sync') || null,
+  syncInterval: null,
+  smoobuUser: null,
+  smoobuApartments: []
+};
+
+// Automation Settings - persisted in localStorage and Supabase
+let automationSettings = {
+  smartReplies: localStorage.getItem('auto_smart_replies') !== 'false',
+  reviewReplies: localStorage.getItem('auto_review_replies') !== 'false',
+  autoPricing: localStorage.getItem('auto_pricing') !== 'false',
+  autoJobs: localStorage.getItem('auto_jobs') === 'true'
+};
+
+// Demo data for AI features
+let chats = [
+  {id:1, name:'Maria Schmidt', avatar:'MS', platform:'airbnb', unread:2, lastMsg:'Wie ist das WLAN Passwort?', time:'14:32', messages:[
+    {from:'them', text:'Hallo! Wir sind gerade angekommen.', time:'14:20'},
+    {from:'me', text:'Willkommen! Schön dass ihr da seid. 😊', time:'14:25'},
+    {from:'them', text:'Wie ist das WLAN Passwort?', time:'14:32'}
+  ]},
+  {id:2, name:'Thomas Weber', avatar:'TW', platform:'booking', unread:1, lastMsg:'Können wir später auschecken?', time:'12:15', messages:[
+    {from:'them', text:'Können wir später auschecken? Unser Flug geht erst um 18 Uhr.', time:'12:15'}
+  ]},
+  {id:3, name:'Lisa Müller', avatar:'LM', platform:'airbnb', unread:0, lastMsg:'Danke, alles super!', time:'Gestern', messages:[
+    {from:'them', text:'Die Wohnung ist toll!', time:'10:00'},
+    {from:'me', text:'Freut mich sehr! Genießt euren Aufenthalt.', time:'10:05', ai:true},
+    {from:'them', text:'Danke, alles super!', time:'10:10'}
+  ]}
+];
+let activeChat = null;
+
+let reviews = [
+  {id:1, guest:'Maria Schmidt', property:'Gemütliche Altbauwohnung', rating:5, date:'10.01.2026', text:'Wunderschöne Wohnung, sehr sauber und gemütlich. Der Gastgeber war super freundlich und hilfsbereit. Würde jederzeit wieder buchen!', replied:false, aiSuggestion:'Vielen Dank für Ihre wunderbare Bewertung, Maria! Es freut mich sehr, dass Ihnen die Wohnung gefallen hat und Sie sich wohlgefühlt haben. Ich würde mich freuen, Sie bald wieder als Gast begrüßen zu dürfen! 😊'},
+  {id:2, guest:'Thomas Weber', property:'City Apartment', rating:4, date:'08.01.2026', text:'Gute Lage, saubere Wohnung. Einzig das Bett war etwas hart. Ansonsten alles top!', replied:false, aiSuggestion:'Danke für Ihr Feedback, Thomas! Schön, dass Ihnen die Lage und Sauberkeit gefallen haben. Den Hinweis zum Bett nehme ich mir zu Herzen - ich werde einen Topper besorgen, damit zukünftige Gäste noch besser schlafen. Danke für die konstruktive Rückmeldung!'},
+  {id:3, guest:'Anna Klein', property:'Gemütliche Altbauwohnung', rating:5, date:'05.01.2026', text:'Perfekt! Alles wie beschrieben, super Kommunikation.', replied:true, reply:'Herzlichen Dank, Anna! Es war mir eine Freude, Sie als Gast zu haben. Bis bald!'}
+];
+
+let pricingData = {
+  enabled: true,
+  strategy: 'balanced',
+  properties: [], // Will be populated from Smoobu sync or local properties
+  dailyPrices: {}, // propertyId -> [{date, basePrice, finalPrice, factors, events}]
+  events: [], // Cached events from Ticketmaster
+  lastEventFetch: null
+};
+
+// German holidays 2025/2026
+const germanHolidays = [
+  { date: '2025-01-01', name: 'Neujahr', boost: 0.20 },
+  { date: '2025-04-18', name: 'Karfreitag', boost: 0.15 },
+  { date: '2025-04-20', name: 'Ostersonntag', boost: 0.25 },
+  { date: '2025-04-21', name: 'Ostermontag', boost: 0.25 },
+  { date: '2025-05-01', name: 'Tag der Arbeit', boost: 0.15 },
+  { date: '2025-05-29', name: 'Christi Himmelfahrt', boost: 0.20 },
+  { date: '2025-06-08', name: 'Pfingstsonntag', boost: 0.20 },
+  { date: '2025-06-09', name: 'Pfingstmontag', boost: 0.20 },
+  { date: '2025-10-03', name: 'Tag der Deutschen Einheit', boost: 0.15 },
+  { date: '2025-12-24', name: 'Heiligabend', boost: 0.30 },
+  { date: '2025-12-25', name: '1. Weihnachtstag', boost: 0.35 },
+  { date: '2025-12-26', name: '2. Weihnachtstag', boost: 0.35 },
+  { date: '2025-12-31', name: 'Silvester', boost: 0.50 },
+  { date: '2026-01-01', name: 'Neujahr', boost: 0.20 },
+  { date: '2026-04-03', name: 'Karfreitag', boost: 0.15 },
+  { date: '2026-04-05', name: 'Ostersonntag', boost: 0.25 },
+  { date: '2026-04-06', name: 'Ostermontag', boost: 0.25 },
+  { date: '2026-05-01', name: 'Tag der Arbeit', boost: 0.15 },
+  { date: '2026-05-14', name: 'Christi Himmelfahrt', boost: 0.20 },
+  { date: '2026-05-24', name: 'Pfingstsonntag', boost: 0.20 },
+  { date: '2026-05-25', name: 'Pfingstmontag', boost: 0.20 },
+  { date: '2026-10-03', name: 'Tag der Deutschen Einheit', boost: 0.15 },
+  { date: '2026-12-24', name: 'Heiligabend', boost: 0.30 },
+  { date: '2026-12-25', name: '1. Weihnachtstag', boost: 0.35 },
+  { date: '2026-12-26', name: '2. Weihnachtstag', boost: 0.35 },
+  { date: '2026-12-31', name: 'Silvester', boost: 0.50 },
+];
+
+// Ticketmaster API (free tier: 5000 calls/day)
+const TICKETMASTER_API_KEY = 'pLOeuGq2JL05uEGrZG7DuGWu6sh2OnMz'; // Public demo key
+
+// Tutorial - Interactive Spotlight Tour
+const tutorialSteps = [
+  {
+    id: 'welcome',
+    icon: '👋',
+    title: 'Willkommen bei PilotStay!',
+    desc: 'Schön, dass du dabei bist! Ich zeige dir in 2 Minuten alle wichtigen Funktionen deines Dashboards.',
+    target: null, // No spotlight for welcome
+    position: 'center',
+    button: "Los geht's! 🚀"
+  },
+  {
+    id: 'sidebar',
+    icon: '📍',
+    title: 'Navigation',
+    desc: 'Hier findest du alle Module. Klicke einfach auf einen Menüpunkt um zwischen den Bereichen zu wechseln.',
+    target: '.sidebar',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'dashboard',
+    icon: '📊',
+    title: 'Dashboard',
+    desc: 'Deine Zentrale! Hier siehst du auf einen Blick: Umsatz, Buchungen, neue Nachrichten und deinen KI-Score.',
+    target: '[data-page="dashboard"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'bookings',
+    icon: '📅',
+    title: 'Buchungen',
+    desc: 'Alle deine Reservierungen an einem Ort. Du kannst Buchungen manuell hinzufügen, bearbeiten oder löschen.',
+    target: '[data-page="bookings"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'properties',
+    icon: '🏠',
+    title: 'Objekte',
+    desc: 'Verwalte deine Ferienwohnungen. Füge neue hinzu oder verbinde sie mit Smoobu für automatischen Import.',
+    target: '[data-page="properties"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'messages',
+    icon: '💬',
+    title: 'Nachrichten',
+    desc: 'Kommuniziere mit deinen Gästen. Die KI schlägt dir automatisch passende Antworten vor - mit einem Klick absenden!',
+    target: '[data-page="messages"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'reviews',
+    icon: '⭐',
+    title: 'Bewertungen',
+    desc: 'Alle Gästebewertungen im Überblick. Die KI generiert personalisierte Antworten, die du nur noch bestätigen musst.',
+    target: '[data-page="reviews"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'pricing',
+    icon: '💰',
+    title: 'Preisoptimierung',
+    desc: 'Hier wird es spannend! Die KI analysiert Nachfrage, Events und Wettbewerb und schlägt optimale Preise vor.',
+    target: '[data-page="pricing"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'automation',
+    icon: '🤖',
+    title: 'Automatisierung',
+    desc: 'Das Herzstück! Verbinde Smoobu, aktiviere KI-Features und lass PilotStay für dich arbeiten.',
+    target: '[data-page="automation"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'settings',
+    icon: '⚙️',
+    title: 'Einstellungen',
+    desc: 'Verwalte dein Profil, ändere dein Passwort und passe deine Benachrichtigungen an.',
+    target: '[data-page="settings"]',
+    position: 'right',
+    button: 'Weiter →'
+  },
+  {
+    id: 'complete',
+    icon: '🎉',
+    title: 'Fertig!',
+    desc: 'Du kennst jetzt alle Funktionen! Tipp: Starte mit der Smoobu-Verbindung unter "Automatisierung" um deine Daten zu importieren.',
+    target: null,
+    position: 'center',
+    button: 'Dashboard starten! ✨'
+  }
+];
+let tutorialCurrentStep = 0;
+
+// =====================
+// INIT
+// =====================
+async function init() {
+  try {
+    // Check if running locally (file://)
+    if (window.location.protocol === 'file:') {
+      showLocalFileError();
+      return;
+    }
+    
+    const {data:{session}, error} = await db.auth.getSession();
+    
+    if (error) {
+      console.error('Auth error:', error);
+      showAuthError(error.message);
+      return;
+    }
+    
+    if (!session) {
+      // No session - redirect to login
+      window.location.href = 'auth.html';
+      return;
+    }
+    
+    user = session.user;
+    const {data:p} = await db.from('profiles').select('*').eq('id', user.id).single();
+    profile = p;
+    
+    if (profile?.role !== 'host' && profile?.role !== 'admin') {
+      window.location.href = 'partner-dashboard.html';
+      return;
+    }
+    
+    await loadData();
+    await loadAutomationSettings();
+    loadPricingStrategy();
+    
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    
+    renderUser();
+    checkSmoobuConnection();
+    renderPage();
+    bindEvents();
+    
+    // Show tutorial on first login
+    if (!localStorage.getItem('ps_tut_done')) {
+      setTimeout(() => startTutorial(), 500);
+    }
+    
+  } catch (err) {
+    console.error('Init error:', err);
+    showAuthError(err.message);
+  }
+}
+
+function showLocalFileError() {
+  document.getElementById('loading').innerHTML = `
+    <div style="text-align:center;max-width:400px;padding:20px">
+      <div style="font-size:48px;margin-bottom:16px">⚠️</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px">Lokale Datei erkannt</div>
+      <div style="color:#a1a1aa;font-size:14px;line-height:1.6;margin-bottom:24px">
+        Das Dashboard kann nicht als lokale Datei geöffnet werden.<br><br>
+        Bitte öffne es über deine Vercel-URL:
+      </div>
+      <a href="https://pilotstay-appp.vercel.app" class="btn btn-primary" style="text-decoration:none">
+        🌐 Zu PilotStay öffnen
+      </a>
+      <div style="margin-top:24px;padding-top:24px;border-top:1px solid #27272a">
+        <div style="font-size:12px;color:#71717a">Oder lade die Datei auf GitHub hoch und deploye über Vercel</div>
+      </div>
+    </div>
+  `;
+}
+
+function showAuthError(message) {
+  document.getElementById('loading').innerHTML = `
+    <div style="text-align:center;max-width:400px;padding:20px">
+      <div style="font-size:48px;margin-bottom:16px">🔐</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px">Nicht eingeloggt</div>
+      <div style="color:#a1a1aa;font-size:14px;line-height:1.6;margin-bottom:24px">
+        Du musst dich zuerst anmelden um das Dashboard zu nutzen.
+      </div>
+      <a href="auth.html" class="btn btn-primary" style="text-decoration:none">
+        🔑 Zum Login
+      </a>
+      ${message ? `<div style="margin-top:16px;font-size:11px;color:#ef4444">${message}</div>` : ''}
+    </div>
+  `;
+}
+
+async function loadData() {
+  const {data:pr} = await db.from('properties').select('*').eq('host_id', user.id).order('created_at', {ascending:false});
+  properties = pr || [];
+  const {data:bk} = await db.from('bookings').select('*,properties(name)').eq('host_id', user.id).order('check_in', {ascending:true});
+  bookings = bk || [];
+  
+  // Initialize pricing data from properties
+  initializePricingData();
+  
+  // Fetch events for properties (async, don't wait)
+  fetchEventsForProperties();
+}
+
+async function initializePricingData() {
+  if (properties.length === 0) {
+    pricingData.properties = [];
+    pricingData.dailyPrices = {};
+    return;
+  }
+  
+  // Calculate occupancy for each property based on bookings
+  const now = new Date();
+  const sixtyDaysFromNow = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  
+  pricingData.properties = properties.map(prop => {
+    // Count booked days in next 60 days
+    const propBookings = bookings.filter(b => 
+      b.property_id === prop.id && 
+      new Date(b.check_out) >= now &&
+      new Date(b.check_in) <= sixtyDaysFromNow &&
+      b.status !== 'cancelled'
+    );
+    
+    let bookedDays = 0;
+    propBookings.forEach(b => {
+      const checkIn = new Date(Math.max(new Date(b.check_in), now));
+      const checkOut = new Date(Math.min(new Date(b.check_out), sixtyDaysFromNow));
+      const days = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+      bookedDays += Math.max(0, days);
+    });
+    
+    const occupancy = Math.min(100, Math.round((bookedDays / 60) * 100));
+    const basePrice = prop.base_price || 80;
+    
+    return {
+      id: prop.smoobu_id || prop.id,
+      localId: prop.id,
+      name: prop.name,
+      city: prop.city || '',
+      basePrice: basePrice,
+      currentPrice: basePrice,
+      occupancy: occupancy
+    };
+  });
+  
+  // Calculate daily prices for each property
+  await calculateAllDailyPrices();
+}
+
+async function calculateAllDailyPrices() {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  
+  for (const prop of pricingData.properties) {
+    pricingData.dailyPrices[prop.id] = [];
+    
+    // Generate prices for next 60 days
+    for (let i = 0; i < 60; i++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const dayPrice = calculateDayPrice(prop, date, dateStr);
+      pricingData.dailyPrices[prop.id].push(dayPrice);
+    }
+  }
+}
+
+function calculateDayPrice(prop, date, dateStr) {
+  const basePrice = prop.basePrice;
+  let finalPrice = basePrice;
+  let factors = [];
+  let events = [];
+  
+  // Strategy multipliers
+  const strategyMultipliers = {
+    conservative: { weekend: 0.08, holiday: 0.15, event: 0.10, lowDemand: -0.03 },
+    balanced: { weekend: 0.15, holiday: 0.25, event: 0.20, lowDemand: -0.05 },
+    aggressive: { weekend: 0.25, holiday: 0.40, event: 0.35, lowDemand: -0.08 }
+  };
+  const multipliers = strategyMultipliers[pricingData.strategy] || strategyMultipliers.balanced;
+  
+  const dayOfWeek = date.getDay();
+  
+  // 1. Weekend pricing (Fr, Sa)
+  if (dayOfWeek === 5 || dayOfWeek === 6) {
+    const boost = multipliers.weekend;
+    finalPrice *= (1 + boost);
+    factors.push({ type: 'weekend', label: `🗓️ Wochenende +${Math.round(boost * 100)}%`, boost });
+  }
+  
+  // 2. Sunday slight boost
+  if (dayOfWeek === 0) {
+    const boost = multipliers.weekend * 0.5;
+    finalPrice *= (1 + boost);
+    factors.push({ type: 'sunday', label: `🗓️ Sonntag +${Math.round(boost * 100)}%`, boost });
+  }
+  
+  // 3. Check holidays
+  const holiday = germanHolidays.find(h => h.date === dateStr);
+  if (holiday) {
+    const boost = Math.min(holiday.boost, multipliers.holiday * 2);
+    finalPrice *= (1 + boost);
+    factors.push({ type: 'holiday', label: `🎉 ${holiday.name} +${Math.round(boost * 100)}%`, boost });
+  }
+  
+  // 4. Check events from Ticketmaster
+  const cityEvents = pricingData.events.filter(e => {
+    const eventDate = e.dates?.start?.localDate;
+    const eventCity = e._embedded?.venues?.[0]?.city?.name?.toLowerCase() || '';
+    const propCity = prop.city?.toLowerCase() || '';
+    return eventDate === dateStr && (eventCity.includes(propCity) || propCity.includes(eventCity));
+  });
+  
+  if (cityEvents.length > 0) {
+    // Calculate event boost based on size/popularity
+    cityEvents.forEach(event => {
+      let eventBoost = multipliers.event;
+      const venueName = event._embedded?.venues?.[0]?.name || '';
+      
+      // Bigger venues = bigger events = bigger boost
+      if (venueName.toLowerCase().includes('arena') || venueName.toLowerCase().includes('stadion')) {
+        eventBoost *= 1.5;
+      }
+      
+      finalPrice *= (1 + eventBoost);
+      factors.push({ 
+        type: 'event', 
+        label: `🎭 ${event.name?.substring(0, 30)}${event.name?.length > 30 ? '...' : ''} +${Math.round(eventBoost * 100)}%`, 
+        boost: eventBoost 
+      });
+      events.push({
+        name: event.name,
+        venue: venueName,
+        url: event.url
+      });
+    });
+  }
+  
+  // 5. Check if date is booked (no adjustment needed, but mark it)
+  const isBooked = bookings.some(b => {
+    const checkIn = new Date(b.check_in);
+    const checkOut = new Date(b.check_out);
+    return b.property_id === prop.localId && 
+           date >= checkIn && 
+           date < checkOut && 
+           b.status !== 'cancelled';
+  });
+  
+  // 6. Low demand adjustment (if no factors and weekday)
+  if (factors.length === 0 && dayOfWeek >= 1 && dayOfWeek <= 4) {
+    // Check if there's a gap (no bookings before and after)
+    const prevDay = new Date(date);
+    prevDay.setDate(prevDay.getDate() - 1);
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+    
+    const hasSurroundingBookings = bookings.some(b => {
+      const checkIn = new Date(b.check_in);
+      const checkOut = new Date(b.check_out);
+      return b.property_id === prop.localId && 
+             ((prevDay >= checkIn && prevDay < checkOut) || (nextDay >= checkIn && nextDay < checkOut));
+    });
+    
+    if (!hasSurroundingBookings && prop.occupancy < 50) {
+      const discount = multipliers.lowDemand;
+      finalPrice *= (1 + discount);
+      factors.push({ type: 'low', label: `📉 Geringe Nachfrage ${Math.round(discount * 100)}%`, boost: discount });
+    }
+  }
+  
+  // Round to nearest euro
+  finalPrice = Math.round(finalPrice);
+  
+  // Calculate total change percentage
+  const changePercent = Math.round(((finalPrice - basePrice) / basePrice) * 100);
+  
+  return {
+    date: dateStr,
+    dayOfWeek,
+    basePrice,
+    finalPrice,
+    changePercent,
+    factors,
+    events,
+    isBooked,
+    applied: false
+  };
+}
+
+// Fetch events from Ticketmaster for all property cities
+async function fetchEventsForProperties() {
+  // Only fetch once per hour
+  const now = Date.now();
+  if (pricingData.lastEventFetch && (now - pricingData.lastEventFetch) < 3600000) {
+    return;
+  }
+  
+  // Get unique cities from properties
+  const cities = [...new Set(properties.map(p => p.city).filter(c => c && c.length > 2))];
+  
+  if (cities.length === 0) {
+    console.log('No cities to fetch events for');
+    return;
+  }
+  
+  console.log('Fetching events for cities:', cities);
+  pricingData.events = [];
+  
+  const startDate = new Date().toISOString().split('T')[0];
+  const endDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  
+  for (const city of cities) {
+    try {
+      const response = await fetch(
+        `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${TICKETMASTER_API_KEY}&city=${encodeURIComponent(city)}&countryCode=DE&startDateTime=${startDate}T00:00:00Z&endDateTime=${endDate}T23:59:59Z&size=50&sort=date,asc`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data._embedded?.events) {
+          pricingData.events.push(...data._embedded.events);
+          console.log(`Found ${data._embedded.events.length} events in ${city}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching events for ${city}:`, error);
+    }
+  }
+  
+  pricingData.lastEventFetch = now;
+  
+  // Recalculate daily prices with events
+  if (pricingData.events.length > 0) {
+    await calculateAllDailyPrices();
+    if (currentPage === 'pricing') {
+      renderPage();
+    }
+  }
+}
+
+// Apply all suggested prices to Smoobu (day by day)
+async function applyAllDailyPrices(propertyId) {
+  const prop = pricingData.properties.find(p => p.id === propertyId);
+  const dailyPrices = pricingData.dailyPrices[propertyId];
+  
+  if (!prop || !dailyPrices || !smoobuConfig.connected) {
+    showToast('❌ Smoobu nicht verbunden');
+    return;
+  }
+  
+  showModal(`
+    <div style="text-align:center;padding:40px">
+      <div class="spinner" style="margin:0 auto 20px"></div>
+      <div style="font-size:16px;font-weight:600">Übertrage Preise zu Smoobu...</div>
+      <div style="color:#71717a;font-size:13px;margin-top:8px">
+        <span id="price-progress">0</span> / ${dailyPrices.filter(d => !d.isBooked).length} Tage
+      </div>
+    </div>
+  `);
+  
+  let successCount = 0;
+  let errorCount = 0;
+  let processedCount = 0;
+  
+  // Filter out booked days
+  const daysToUpdate = dailyPrices.filter(d => !d.isBooked);
+  
+  for (let i = 0; i < daysToUpdate.length; i++) {
+    const day = daysToUpdate[i];
+    
+    try {
+      const response = await fetch(`${SMOOBU_PROXY_URL}?action=update-rates`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-smoobu-key': smoobuConfig.apiKey
+        },
+        body: JSON.stringify({
+          apartments: [parseInt(propertyId)],
+          operations: [{
+            dates: [`${day.date}:${day.date}`],
+            daily_price: day.finalPrice
+          }]
+        })
+      });
+      
+      if (response.ok) {
+        day.applied = true;
+        successCount++;
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Price update error:', errorData);
+        errorCount++;
+      }
+    } catch (error) {
+      errorCount++;
+      console.error('Error applying price:', error);
+    }
+    
+    processedCount++;
+    document.getElementById('price-progress').textContent = processedCount;
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  
+  hideModal();
+  
+  if (errorCount === 0) {
+    showToast(`✅ ${successCount} Tagespreise erfolgreich übertragen!`);
+  } else {
+    showToast(`⚠️ ${successCount} übertragen, ${errorCount} Fehler`);
+  }
+  
+  renderPage();
+}
+
+// Apply single day price
+async function applySingleDayPrice(propertyId, dateStr) {
+  const dailyPrices = pricingData.dailyPrices[propertyId];
+  const day = dailyPrices?.find(d => d.date === dateStr);
+  
+  if (!day || !smoobuConfig.connected) {
+    showToast('❌ Fehler beim Übertragen');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${SMOOBU_PROXY_URL}?action=update-rates`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-smoobu-key': smoobuConfig.apiKey
+      },
+      body: JSON.stringify({
+        apartments: [parseInt(propertyId)],
+        operations: [{
+          dates: [`${dateStr}:${dateStr}`],
+          daily_price: day.finalPrice
+        }]
+      })
+    });
+    
+    if (response.ok) {
+      day.applied = true;
+      showToast(`✅ Preis für ${formatDateShort(dateStr)} übertragen`);
+      renderPage();
+    } else {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Price update error:', errorData);
+      showToast('❌ Fehler beim Übertragen');
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    showToast('❌ Fehler beim Übertragen');
+  }
+}
+
+function formatDateShort(dateStr) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+}
+
+// =====================
+// TUTORIAL - Interactive Spotlight Tour
+// =====================
+function startTutorial() {
+  tutorialCurrentStep = 0;
+  document.getElementById('tutorial-overlay').style.display = 'block';
+  
+  // Build progress dots
+  const progressContainer = document.getElementById('tutorial-progress');
+  progressContainer.innerHTML = tutorialSteps.map((_, i) => 
+    `<div class="tutorial-dot" data-step="${i}"></div>`
+  ).join('');
+  
+  // Bind events
+  document.getElementById('tutorial-next').onclick = nextTutorialStep;
+  document.getElementById('tutorial-skip').onclick = endTutorial;
+  
+  // Delay backdrop fade
+  setTimeout(() => {
+    document.getElementById('tutorial-backdrop').classList.add('active');
+  }, 50);
+  
+  showTutorialStep();
+}
+
+function showTutorialStep() {
+  const step = tutorialSteps[tutorialCurrentStep];
+  const totalSteps = tutorialSteps.length;
+  
+  // Update content
+  document.getElementById('tutorial-step-icon').textContent = step.icon;
+  document.getElementById('tutorial-step-label').textContent = `Schritt ${tutorialCurrentStep + 1} von ${totalSteps}`;
+  document.getElementById('tutorial-step-title').textContent = step.title;
+  document.getElementById('tutorial-step-desc').textContent = step.desc;
+  document.getElementById('tutorial-next').textContent = step.button;
+  
+  // Update progress dots
+  document.querySelectorAll('.tutorial-dot').forEach((dot, i) => {
+    dot.className = 'tutorial-dot' + (i < tutorialCurrentStep ? ' done' : i === tutorialCurrentStep ? ' active' : '');
+  });
+  
+  // Position spotlight and tooltip
+  const spotlight = document.getElementById('tutorial-spotlight');
+  const tooltip = document.getElementById('tutorial-tooltip');
+  const arrow = document.getElementById('tutorial-arrow');
+  
+  if (step.target && step.position !== 'center') {
+    const target = document.querySelector(step.target);
+    if (target) {
+      const rect = target.getBoundingClientRect();
+      const padding = 8;
+      
+      // Position spotlight
+      spotlight.style.display = 'block';
+      spotlight.style.top = (rect.top - padding) + 'px';
+      spotlight.style.left = (rect.left - padding) + 'px';
+      spotlight.style.width = (rect.width + padding * 2) + 'px';
+      spotlight.style.height = (rect.height + padding * 2) + 'px';
+      spotlight.classList.add('pulse');
+      
+      // Position tooltip based on step.position
+      arrow.className = '';
+      
+      if (step.position === 'right') {
+        tooltip.style.left = (rect.right + 30) + 'px';
+        tooltip.style.top = Math.max(20, rect.top - 20) + 'px';
+        tooltip.style.transform = 'none';
+        arrow.classList.add('left');
+      } else if (step.position === 'left') {
+        tooltip.style.left = (rect.left - 430) + 'px';
+        tooltip.style.top = Math.max(20, rect.top - 20) + 'px';
+        tooltip.style.transform = 'none';
+        arrow.classList.add('right');
+      } else if (step.position === 'bottom') {
+        tooltip.style.left = rect.left + 'px';
+        tooltip.style.top = (rect.bottom + 30) + 'px';
+        tooltip.style.transform = 'none';
+        arrow.classList.add('top');
+      } else if (step.position === 'top') {
+        tooltip.style.left = rect.left + 'px';
+        tooltip.style.top = (rect.top - 250) + 'px';
+        tooltip.style.transform = 'none';
+        arrow.classList.add('bottom');
+      }
+    } else {
+      // Target not found, center
+      centerTooltip();
+    }
+  } else {
+    // Center position (no spotlight)
+    centerTooltip();
+  }
+}
+
+function centerTooltip() {
+  const spotlight = document.getElementById('tutorial-spotlight');
+  const tooltip = document.getElementById('tutorial-tooltip');
+  const arrow = document.getElementById('tutorial-arrow');
+  
+  spotlight.style.display = 'none';
+  spotlight.classList.remove('pulse');
+  tooltip.style.left = '50%';
+  tooltip.style.top = '50%';
+  tooltip.style.transform = 'translate(-50%, -50%)';
+  arrow.className = 'hidden';
+}
+
+function nextTutorialStep() {
+  tutorialCurrentStep++;
+  
+  if (tutorialCurrentStep >= tutorialSteps.length) {
+    endTutorial();
+  } else {
+    // Animate tooltip out and in
+    const tooltip = document.getElementById('tutorial-tooltip');
+    tooltip.style.animation = 'none';
+    tooltip.offsetHeight; // Trigger reflow
+    tooltip.style.animation = 'tutorialFadeIn .4s ease';
+    
+    showTutorialStep();
+  }
+}
+
+function endTutorial() {
+  document.getElementById('tutorial-backdrop').classList.remove('active');
+  
+  setTimeout(() => {
+    document.getElementById('tutorial-overlay').style.display = 'none';
+    document.getElementById('tutorial-spotlight').style.display = 'none';
+    localStorage.setItem('ps_tut_done', '1');
+    
+    // Show welcome toast
+    showToast('🎉 Tutorial abgeschlossen! Viel Erfolg mit PilotStay!');
+  }, 300);
+}
+
+function resetTutorial() {
+  localStorage.removeItem('ps_tut_done');
+  startTutorial();
+}
+
+// =====================
+// USER
+// =====================
+function renderUser() {
+  const n = profile?.first_name || user?.email?.split('@')[0] || 'User';
+  document.getElementById('user-avatar').textContent = n[0].toUpperCase();
+  document.getElementById('user-name').textContent = n + (profile?.last_name ? ' ' + profile.last_name : '');
+}
+
+// =====================
+// NAVIGATION
+// =====================
+function setPage(p) {
+  currentPage = p;
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.toggle('active', i.dataset.page === p));
+  renderPage();
+}
+
+// =====================
+// RENDER PAGE
+// =====================
+function renderPage() {
+  const c = document.getElementById('content');
+  const t = document.getElementById('page-title');
+  const s = document.getElementById('page-subtitle');
+  const a = document.getElementById('header-actions');
+  const date = new Date().toLocaleDateString('de-DE', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+  
+  switch(currentPage) {
+    case 'dashboard':
+      t.textContent = 'Willkommen zurück! 👋';
+      s.textContent = date;
+      a.innerHTML = '<button class="btn btn-primary" onclick="showAddProp()">+ Objekt</button>';
+      c.innerHTML = renderDashboard();
+      break;
+    case 'bookings':
+      t.textContent = 'Buchungen';
+      s.textContent = bookings.length + ' Buchungen insgesamt';
+      a.innerHTML = '<button class="btn btn-primary" onclick="showAddBook()">+ Buchung</button>';
+      c.innerHTML = renderBookings();
+      break;
+    case 'properties':
+      t.textContent = 'Objekte';
+      s.textContent = properties.length + ' Objekte verwaltet';
+      a.innerHTML = '<button class="btn btn-primary" onclick="showAddProp()">+ Objekt</button>';
+      c.innerHTML = renderProperties();
+      break;
+    case 'partners':
+      t.textContent = 'Partner';
+      s.textContent = 'Finde Reinigungskräfte & Services';
+      a.innerHTML = '';
+      c.innerHTML = renderPartners();
+      break;
+    case 'messages':
+      t.textContent = '💬 Nachrichten';
+      s.textContent = 'KI-gestützte Gästekommunikation';
+      a.innerHTML = automationSettings.smartReplies 
+        ? '<span class="tag tag-purple">🧠 Smart Replies aktiv</span>'
+        : '<span class="tag tag-orange">🧠 Smart Replies aus</span>';
+      c.innerHTML = renderMessages();
+      bindChatEvents();
+      break;
+    case 'reviews':
+      t.textContent = '⭐ Bewertungen';
+      s.textContent = 'KI-generierte Antwortvorschläge';
+      a.innerHTML = automationSettings.reviewReplies
+        ? '<span class="tag tag-purple">🧠 KI-Antworten aktiv</span>'
+        : '<span class="tag tag-orange">🧠 KI-Antworten aus</span>';
+      c.innerHTML = renderReviews();
+      break;
+    case 'pricing':
+      t.textContent = '💰 Preisoptimierung';
+      s.textContent = 'KI-gesteuerte dynamische Preise';
+      a.innerHTML = automationSettings.autoPricing
+        ? '<span class="tag tag-purple">🧠 Auto-Pricing aktiv</span>'
+        : '<span class="tag tag-orange">🧠 Auto-Pricing aus</span>';
+      c.innerHTML = renderPricing();
+      break;
+    case 'automation':
+      t.textContent = 'Automatisierung';
+      s.textContent = 'KI-Features & Auto-Pilot';
+      a.innerHTML = '';
+      c.innerHTML = renderAutomation();
+      break;
+    case 'settings':
+      t.textContent = 'Einstellungen';
+      s.textContent = 'Profil & Integrationen';
+      a.innerHTML = '';
+      c.innerHTML = renderSettings();
+      break;
+  }
+}
+
+// =====================
+// DASHBOARD
+// =====================
+function renderDashboard() {
+  // Calculate current month revenue
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+  
+  // Current month bookings
+  const currentMonthBookings = bookings.filter(b => {
+    const checkIn = new Date(b.check_in);
+    return checkIn.getMonth() === currentMonth && checkIn.getFullYear() === currentYear;
+  });
+  
+  // Last month bookings
+  const lastMonthBookings = bookings.filter(b => {
+    const checkIn = new Date(b.check_in);
+    return checkIn.getMonth() === lastMonth && checkIn.getFullYear() === lastMonthYear;
+  });
+  
+  const currentRev = currentMonthBookings.reduce((s,b) => s + (b.total_price||0), 0);
+  const lastRev = lastMonthBookings.reduce((s,b) => s + (b.total_price||0), 0);
+  const totalRev = bookings.reduce((s,b) => s + (b.total_price||0), 0);
+  
+  // Calculate percentage change
+  let revChange = 0;
+  let revChangeText = '';
+  if (lastRev > 0) {
+    revChange = Math.round(((currentRev - lastRev) / lastRev) * 100);
+    revChangeText = revChange >= 0 ? `+${revChange}%` : `${revChange}%`;
+  } else if (currentRev > 0) {
+    revChangeText = '+100%';
+    revChange = 100;
+  } else {
+    revChangeText = '—';
+  }
+  
+  const upcoming = bookings.filter(b => new Date(b.check_in) >= new Date()).slice(0,5);
+  const unreadMsgs = chats.reduce((s,c) => s + c.unread, 0);
+  const pendingReviews = reviews.filter(r => !r.replied).length;
+  
+  return `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon">💰</div>
+        <div class="stat-value">€${totalRev.toLocaleString()}</div>
+        <div class="stat-label">Umsatz (Gesamt)</div>
+        ${revChangeText !== '—' ? `<div class="stat-change ${revChange >= 0 ? 'up' : 'down'}">${revChangeText} vs. Vormonat</div>` : ''}
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">📅</div>
+        <div class="stat-value">${bookings.length}</div>
+        <div class="stat-label">Buchungen</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">💬</div>
+        <div class="stat-value">${unreadMsgs}</div>
+        <div class="stat-label">Neue Nachrichten</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⭐</div>
+        <div class="stat-value">${pendingReviews}</div>
+        <div class="stat-label">Unbeantwortete Bewertungen</div>
+      </div>
+    </div>
+    
+    <!-- AI Score -->
+    <div class="card card-ai" style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:24px">
+        <div style="text-align:center">
+          <div style="font-size:48px;font-weight:700;color:#8b5cf6">${properties.length ? '72%' : '0%'}</div>
+          <div style="font-size:12px;color:#a1a1aa">🤖 KI-Score</div>
+        </div>
+        <div style="flex:1;padding-left:20px;border-left:1px solid #27272a">
+          <div style="font-weight:600;margin-bottom:8px">KI-Features aktiv:</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <span class="tag tag-purple">💬 Smart Replies</span>
+            <span class="tag tag-purple">⭐ Review-Antworten</span>
+            <span class="tag tag-purple">💰 Auto-Pricing</span>
+          </div>
+        </div>
+        <button class="btn btn-ai" onclick="setPage('automation')">Mehr KI →</button>
+      </div>
+    </div>
+    
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">📅 Kommende Buchungen</div>
+        ${upcoming.length ? upcoming.map(b => `
+          <div class="list-item">
+            <div class="list-icon">👤</div>
+            <div class="list-info">
+              <div class="list-title">${b.guest_name}</div>
+              <div class="list-subtitle">${b.properties?.name || ''} · ${fmtDate(b.check_in)}</div>
+            </div>
+            <div style="color:#22c55e;font-weight:700">€${b.total_price||0}</div>
+          </div>
+        `).join('') : `
+          <div class="empty-state" style="padding:30px">
+            <div class="empty-icon">📭</div>
+            <div class="empty-desc">Keine Buchungen</div>
+          </div>
+        `}
+      </div>
+      
+      <div class="card">
+        <div class="card-title">🏠 Deine Objekte</div>
+        ${properties.length ? properties.slice(0,4).map(p => `
+          <div class="list-item">
+            <div class="list-icon">${p.property_type === 'house' ? '🏡' : '🏢'}</div>
+            <div class="list-info">
+              <div class="list-title">${p.name}</div>
+              <div class="list-subtitle">${p.city || '-'}</div>
+            </div>
+            <span class="tag tag-green">Aktiv</span>
+          </div>
+        `).join('') : `
+          <div class="empty-state" style="padding:30px">
+            <div class="empty-icon">🏚️</div>
+            <button class="btn btn-primary" onclick="showAddProp()">+ Objekt</button>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+// =====================
+// MESSAGES (AI)
+// =====================
+function renderMessages() {
+  const chat = activeChat ? chats.find(c => c.id === activeChat) : null;
+  
+  // Only show smart replies if feature is enabled
+  const smartReplies = (chat && automationSettings.smartReplies) ? getSmartReplies(chat) : [];
+  
+  return `
+    <div class="chat-container">
+      <div class="chat-list">
+        <div class="chat-list-header">
+          Konversationen
+          ${!automationSettings.smartReplies ? '<span class="tag tag-orange" style="font-size:9px;margin-left:8px">KI aus</span>' : ''}
+        </div>
+        <div class="chat-list-items">
+          ${chats.map(c => `
+            <div class="chat-item ${activeChat === c.id ? 'active' : ''}" data-chat="${c.id}">
+              <div class="chat-avatar" style="background:linear-gradient(135deg,${c.platform==='airbnb'?'#ff5a5f,#ff8c8c':'#003580,#0071c2'})">${c.avatar}</div>
+              <div class="chat-preview">
+                <div class="chat-name">${c.name}</div>
+                <div class="chat-last">${c.lastMsg}</div>
+              </div>
+              <div style="text-align:right">
+                <div class="chat-time">${c.time}</div>
+                ${c.unread ? `<div class="chat-unread">${c.unread}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      
+      <div class="chat-window">
+        ${chat ? `
+          <div class="chat-header">
+            <div class="chat-avatar" style="background:linear-gradient(135deg,${chat.platform==='airbnb'?'#ff5a5f,#ff8c8c':'#003580,#0071c2'})">${chat.avatar}</div>
+            <div>
+              <div style="font-weight:600">${chat.name}</div>
+              <div style="font-size:11px;color:#71717a">${chat.platform === 'airbnb' ? 'Airbnb' : 'Booking.com'} Gast</div>
+            </div>
+            <div style="margin-left:auto">
+              <span class="tag tag-${chat.platform === 'airbnb' ? 'red' : 'blue'}">${chat.platform === 'airbnb' ? 'Airbnb' : 'Booking'}</span>
+            </div>
+          </div>
+          
+          <div class="chat-messages" id="chat-messages">
+            ${chat.messages.map(m => `
+              <div class="message ${m.from === 'me' ? 'sent' : 'received'} ${m.ai ? 'message-ai' : ''}">
+                <div class="message-bubble">${m.text}</div>
+                <div class="message-time">${m.ai ? '🧠 KI · ' : ''}${m.time}</div>
+              </div>
+            `).join('')}
+          </div>
+          
+          ${smartReplies.length ? `
+            <div class="smart-replies">
+              <div class="smart-replies-title">🧠 KI-Vorschläge</div>
+              ${smartReplies.map((r,i) => `<button class="smart-reply-btn" onclick="sendSmartReply(${i})">${r}</button>`).join('')}
+            </div>
+          ` : ''}
+          
+          <div class="chat-input">
+            <input class="input" id="msg-input" placeholder="Nachricht schreiben...">
+            <button class="btn btn-primary" onclick="sendMessage()">Senden</button>
+          </div>
+        ` : `
+          <div style="flex:1;display:flex;align-items:center;justify-content:center">
+            <div class="empty-state">
+              <div class="empty-icon">💬</div>
+              <div class="empty-title">Wähle eine Konversation</div>
+              <div class="empty-desc">Klicke links auf einen Chat</div>
+            </div>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function getSmartReplies(chat) {
+  const lastMsg = chat.messages[chat.messages.length - 1];
+  if (lastMsg.from !== 'them') return [];
+  
+  const text = lastMsg.text.toLowerCase();
+  
+  if (text.includes('wlan') || text.includes('wifi') || text.includes('internet')) {
+    return ['Das WLAN-Passwort ist: Guest2024 📶', 'Die Zugangsdaten findest du im Gästebuch!', 'Ich schicke dir die Infos gleich per SMS.'];
+  }
+  if (text.includes('check') || text.includes('auschecken') || text.includes('später')) {
+    return ['Klar, spätes Checkout bis 14 Uhr ist kein Problem! 👍', 'Leider ist das Objekt danach gebucht. Checkout ist um 11 Uhr.', 'Ich schaue kurz nach und melde mich!'];
+  }
+  if (text.includes('parkplatz') || text.includes('parken')) {
+    return ['Kostenlose Parkplätze sind direkt vor dem Haus! 🚗', 'Es gibt eine Tiefgarage im Gebäude.', 'Am besten auf der Straße parken - ist kostenlos.'];
+  }
+  
+  return ['Danke für deine Nachricht! 😊', 'Ich melde mich gleich!', 'Alles klar, verstanden!'];
+}
+
+function sendSmartReply(idx) {
+  const chat = chats.find(c => c.id === activeChat);
+  if (!chat) return;
+  
+  const replies = getSmartReplies(chat);
+  const text = replies[idx];
+  
+  chat.messages.push({from:'me', text, time: new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'}), ai:true});
+  chat.unread = 0;
+  chat.lastMsg = text;
+  
+  renderPage();
+  scrollChatToBottom();
+}
+
+function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text = input.value.trim();
+  if (!text || !activeChat) return;
+  
+  const chat = chats.find(c => c.id === activeChat);
+  chat.messages.push({from:'me', text, time: new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})});
+  chat.lastMsg = text;
+  
+  input.value = '';
+  renderPage();
+  scrollChatToBottom();
+}
+
+function scrollChatToBottom() {
+  const el = document.getElementById('chat-messages');
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function bindChatEvents() {
+  document.querySelectorAll('.chat-item').forEach(el => {
+    el.onclick = () => {
+      activeChat = parseInt(el.dataset.chat);
+      const chat = chats.find(c => c.id === activeChat);
+      if (chat) chat.unread = 0;
+      renderPage();
+      scrollChatToBottom();
+    };
+  });
+}
+
+// =====================
+// REVIEWS (AI)
+// =====================
+function renderReviews() {
+  const avgRating = reviews.length ? (reviews.reduce((s,r) => s + r.rating, 0) / reviews.length).toFixed(1) : '-';
+  const pending = reviews.filter(r => !r.replied).length;
+  const aiEnabled = automationSettings.reviewReplies;
+  
+  return `
+    <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+      <div class="stat-card">
+        <div class="stat-value" style="color:#fbbf24">${avgRating}</div>
+        <div class="stat-label">⭐ Durchschnitt</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${reviews.length}</div>
+        <div class="stat-label">Bewertungen</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#8b5cf6">${aiEnabled ? pending : '-'}</div>
+        <div class="stat-label">🧠 KI-Vorschläge ${!aiEnabled ? '(deaktiviert)' : ''}</div>
+      </div>
+    </div>
+    
+    ${!aiEnabled ? `
+      <div class="card" style="background:#f9731610;border-color:#f9731650;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:24px">⚠️</div>
+          <div style="flex:1">
+            <div style="font-weight:600">KI-Antworten deaktiviert</div>
+            <div style="font-size:12px;color:#a1a1aa">Aktiviere "Review-Antworten" in den Automatisierungen</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="toggleAutomation('reviewReplies');setPage('reviews')">Aktivieren</button>
+        </div>
+      </div>
+    ` : ''}
+    
+    ${reviews.map(r => `
+      <div class="review-card">
+        <div class="review-header">
+          <div class="review-avatar">${r.guest.split(' ').map(n=>n[0]).join('')}</div>
+          <div class="review-info">
+            <div class="review-name">${r.guest}</div>
+            <div class="review-meta">${r.property} · ${r.date}</div>
+          </div>
+          <div class="review-stars">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+        </div>
+        <div class="review-text">${r.text}</div>
+        
+        ${r.replied ? `
+          <div class="review-reply">
+            <div class="review-reply-label">✓ Deine Antwort:</div>
+            <div style="font-size:14px">${r.reply}</div>
+          </div>
+        ` : (aiEnabled ? `
+          <div class="ai-suggestion">
+            <div class="ai-suggestion-header">🧠 KI-Antwortvorschlag</div>
+            <div class="ai-suggestion-text">${r.aiSuggestion}</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-ai btn-sm" onclick="useAiReply(${r.id})">✓ Verwenden</button>
+              <button class="btn btn-secondary btn-sm" onclick="regenAiReply(${r.id})">🔄 Neu generieren</button>
+              <button class="btn btn-secondary btn-sm" onclick="editReply(${r.id})">✏️ Bearbeiten</button>
+            </div>
+          </div>
+        ` : `
+          <div style="margin-top:12px">
+            <button class="btn btn-secondary btn-sm" onclick="editReply(${r.id})">✏️ Manuell antworten</button>
+          </div>
+        `)}
+      </div>
+    `).join('')}
+  `;
+}
+
+function useAiReply(id) {
+  const review = reviews.find(r => r.id === id);
+  if (review) {
+    review.replied = true;
+    review.reply = review.aiSuggestion;
+    renderPage();
+  }
+}
+
+function regenAiReply(id) {
+  const review = reviews.find(r => r.id === id);
+  if (review) {
+    const alternatives = [
+      'Herzlichen Dank für Ihre tolle Bewertung! Es freut mich sehr, dass Sie zufrieden waren. Ich hoffe, Sie bald wieder begrüßen zu dürfen!',
+      'Wow, vielen Dank für das großartige Feedback! Gäste wie Sie machen die Vermietung zu einer Freude. Bis zum nächsten Mal! 🙏',
+      'Danke für die lieben Worte! Es war mir eine Freude, Sie als Gast zu haben. Kommen Sie gerne wieder!'
+    ];
+    review.aiSuggestion = alternatives[Math.floor(Math.random() * alternatives.length)];
+    renderPage();
+  }
+}
+
+function editReply(id) {
+  const review = reviews.find(r => r.id === id);
+  showModal(`
+    <div class="modal-title">✏️ Antwort bearbeiten</div>
+    <div style="margin-bottom:16px">
+      <label class="label">Deine Antwort</label>
+      <textarea class="input" id="reply-text" rows="4" style="resize:vertical">${review.aiSuggestion}</textarea>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+      <button class="btn btn-primary" onclick="saveReply(${id})" style="flex:1">💾 Speichern</button>
+    </div>
+  `);
+}
+
+function saveReply(id) {
+  const review = reviews.find(r => r.id === id);
+  const text = document.getElementById('reply-text').value.trim();
+  if (review && text) {
+    review.replied = true;
+    review.reply = text;
+    hideModal();
+    renderPage();
+  }
+}
+
+// =====================
+// PRICING (AI)
+// =====================
+function renderPricing() {
+  const dayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+  const aiEnabled = automationSettings.autoPricing;
+  
+  // Check if there are any properties
+  if (pricingData.properties.length === 0) {
+    return `
+      <div class="empty-state" style="padding:60px 20px">
+        <div class="empty-icon">💰</div>
+        <div class="empty-title">Keine Objekte für Preisoptimierung</div>
+        <div class="empty-desc" style="margin-bottom:20px">
+          ${properties.length === 0 
+            ? 'Füge zuerst Objekte hinzu oder verbinde Smoobu um die Preisoptimierung zu nutzen.' 
+            : 'Synchronisiere deine Smoobu-Daten um Preise zu optimieren.'}
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center">
+          ${properties.length === 0 
+            ? '<button class="btn btn-primary" onclick="setPage(\'properties\')">🏠 Objekte hinzufügen</button>'
+            : '<button class="btn btn-primary" onclick="setPage(\'automation\')">🔄 Smoobu verbinden</button>'}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Count events found
+  const eventCount = pricingData.events?.length || 0;
+  
+  return `
+    ${!aiEnabled ? `
+      <div class="card" style="background:#f9731610;border-color:#f9731650;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="font-size:24px">⚠️</div>
+          <div style="flex:1">
+            <div style="font-weight:600">Auto-Pricing deaktiviert</div>
+            <div style="font-size:12px;color:#a1a1aa">Preise werden nicht automatisch optimiert</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="toggleAutomation('autoPricing');setPage('pricing')">Aktivieren</button>
+        </div>
+      </div>
+    ` : `
+      <div class="card card-ai" style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div style="font-size:48px">🧠</div>
+          <div style="flex:1;min-width:200px">
+            <div style="font-weight:700;font-size:18px;margin-bottom:4px">KI-Preisoptimierung aktiv</div>
+            <div style="color:#a1a1aa;font-size:13px">Tagesbasierte Preise mit Event-Erkennung</div>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <div style="text-align:center;padding:8px 16px;background:#22c55e15;border-radius:8px">
+              <div style="font-size:20px;font-weight:700;color:#22c55e">${eventCount}</div>
+              <div style="font-size:10px;color:#71717a">Events erkannt</div>
+            </div>
+            <div style="text-align:center;padding:8px 16px;background:#8b5cf615;border-radius:8px">
+              <div style="font-size:20px;font-weight:700;color:#8b5cf6">60</div>
+              <div style="font-size:10px;color:#71717a">Tage optimiert</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `}
+    
+    ${pricingData.properties.map(prop => {
+      const dailyPrices = pricingData.dailyPrices[prop.id] || [];
+      const next30Days = dailyPrices.slice(0, 30);
+      const avgChange = next30Days.length ? Math.round(next30Days.reduce((s, d) => s + d.changePercent, 0) / next30Days.length) : 0;
+      const eventsInPeriod = next30Days.filter(d => d.events.length > 0).length;
+      const notApplied = next30Days.filter(d => !d.applied && !d.isBooked).length;
+      
+      return `
+        <div class="pricing-card" style="margin-bottom:24px">
+          <div class="pricing-header" style="margin-bottom:16px">
+            <div>
+              <div class="pricing-property">${prop.name}</div>
+              <div style="font-size:12px;color:#71717a">${prop.city || 'Keine Stadt'} · Basispreis: €${prop.basePrice}/Nacht</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:12px;color:#71717a">Durchschn. Anpassung</div>
+              <div style="font-size:24px;font-weight:700;color:${avgChange >= 0 ? '#22c55e' : '#ef4444'}">${avgChange >= 0 ? '+' : ''}${avgChange}%</div>
+            </div>
+          </div>
+          
+          <!-- Stats Row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+            <div style="background:#18181b;padding:12px;border-radius:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700">${prop.occupancy}%</div>
+              <div style="font-size:10px;color:#71717a">Auslastung</div>
+            </div>
+            <div style="background:#18181b;padding:12px;border-radius:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:#f97316">${eventsInPeriod}</div>
+              <div style="font-size:10px;color:#71717a">Event-Tage</div>
+            </div>
+            <div style="background:#18181b;padding:12px;border-radius:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:#8b5cf6">${notApplied}</div>
+              <div style="font-size:10px;color:#71717a">Zu übertragen</div>
+            </div>
+            <div style="background:#18181b;padding:12px;border-radius:8px;text-align:center">
+              <button class="btn btn-sm btn-primary" onclick="applyAllDailyPrices('${prop.id}')" style="width:100%" ${!smoobuConfig.connected ? 'disabled' : ''}>
+                ✓ Alle übernehmen
+              </button>
+            </div>
+          </div>
+          
+          <!-- Calendar Header -->
+          <div style="font-size:13px;font-weight:600;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+            <span>📅 Preiskalender (nächste 30 Tage)</span>
+            <span style="font-size:11px;color:#71717a">Klicke auf einen Tag für Details</span>
+          </div>
+          
+          <!-- Calendar Grid -->
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:16px">
+            ${['Mo','Di','Mi','Do','Fr','Sa','So'].map(d => `
+              <div style="text-align:center;font-size:10px;color:#71717a;padding:4px">${d}</div>
+            `).join('')}
+            
+            ${(() => {
+              // Find first day offset
+              const firstDate = next30Days[0] ? new Date(next30Days[0].date) : new Date();
+              let startDay = firstDate.getDay();
+              startDay = startDay === 0 ? 6 : startDay - 1; // Convert to Monday-start
+              
+              let html = '';
+              // Add empty cells for offset
+              for (let i = 0; i < startDay; i++) {
+                html += '<div></div>';
+              }
+              
+              // Add day cells
+              next30Days.forEach((day, idx) => {
+                const date = new Date(day.date);
+                const dayNum = date.getDate();
+                const hasEvent = day.events.length > 0;
+                const isHoliday = day.factors.some(f => f.type === 'holiday');
+                const isWeekend = day.dayOfWeek === 0 || day.dayOfWeek === 5 || day.dayOfWeek === 6;
+                
+                let bgColor = '#18181b';
+                let borderColor = 'transparent';
+                
+                if (day.isBooked) {
+                  bgColor = '#27272a';
+                  borderColor = '#3f3f46';
+                } else if (hasEvent) {
+                  bgColor = '#f9731620';
+                  borderColor = '#f97316';
+                } else if (isHoliday) {
+                  bgColor = '#8b5cf620';
+                  borderColor = '#8b5cf6';
+                } else if (day.changePercent > 10) {
+                  bgColor = '#22c55e15';
+                } else if (day.changePercent < -3) {
+                  bgColor = '#ef444415';
+                }
+                
+                html += `
+                  <div onclick="showDayPriceDetail('${prop.id}', '${day.date}')" 
+                       style="background:${bgColor};border:2px solid ${borderColor};border-radius:8px;padding:6px;text-align:center;cursor:pointer;transition:all .2s;${day.applied ? 'opacity:0.6' : ''}"
+                       onmouseover="this.style.transform='scale(1.05)'" 
+                       onmouseout="this.style.transform='scale(1)'">
+                    <div style="font-size:11px;color:#a1a1aa">${dayNum}</div>
+                    <div style="font-size:13px;font-weight:700;color:${day.changePercent > 0 ? '#22c55e' : day.changePercent < 0 ? '#ef4444' : '#fafafa'}">€${day.finalPrice}</div>
+                    ${hasEvent ? '<div style="font-size:8px">🎭</div>' : ''}
+                    ${isHoliday ? '<div style="font-size:8px">🎉</div>' : ''}
+                    ${day.isBooked ? '<div style="font-size:8px">🔒</div>' : ''}
+                    ${day.applied ? '<div style="font-size:8px">✓</div>' : ''}
+                  </div>
+                `;
+              });
+              
+              return html;
+            })()}
+          </div>
+          
+          <!-- Legend -->
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#71717a;padding:12px;background:#18181b;border-radius:8px">
+            <span>🎭 Event</span>
+            <span>🎉 Feiertag</span>
+            <span>🔒 Gebucht</span>
+            <span>✓ Übertragen</span>
+            <span style="color:#22c55e">■ Erhöht</span>
+            <span style="color:#ef4444">■ Reduziert</span>
+          </div>
+        </div>
+      `;
+    }).join('')}
+    
+    <!-- Events Found Section -->
+    ${pricingData.events.length > 0 ? `
+      <div class="card">
+        <div class="card-title">🎭 Erkannte Events in deiner Region</div>
+        <div style="max-height:300px;overflow-y:auto">
+          ${pricingData.events.slice(0, 10).map(event => `
+            <div class="list-item" style="margin-bottom:8px">
+              <div class="list-icon">🎫</div>
+              <div class="list-info">
+                <div class="list-title">${event.name}</div>
+                <div class="list-subtitle">
+                  ${event.dates?.start?.localDate || ''} · ${event._embedded?.venues?.[0]?.name || ''} · ${event._embedded?.venues?.[0]?.city?.name || ''}
+                </div>
+              </div>
+              <a href="${event.url}" target="_blank" class="btn btn-sm btn-secondary">↗</a>
+            </div>
+          `).join('')}
+        </div>
+        ${pricingData.events.length > 10 ? `
+          <div style="text-align:center;padding:12px;color:#71717a;font-size:12px">
+            +${pricingData.events.length - 10} weitere Events
+          </div>
+        ` : ''}
+      </div>
+    ` : `
+      <div class="card">
+        <div class="card-title">🎭 Events</div>
+        <div style="text-align:center;padding:20px;color:#71717a">
+          <div style="font-size:24px;margin-bottom:8px">🔍</div>
+          <div style="font-size:13px">Events werden automatisch gesucht...</div>
+          <div style="font-size:11px;margin-top:4px">Basierend auf den Städten deiner Objekte</div>
+        </div>
+      </div>
+    `}
+    
+    <!-- Pricing Strategy -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">⚙️ Pricing-Strategie</div>
+      <div class="grid-3" style="margin-bottom:16px">
+        <div class="list-item" style="cursor:pointer;${pricingData.strategy==='conservative'?'border:2px solid #22c55e':''}" onclick="setPricingStrategy('conservative')">
+          <div class="list-icon">🐢</div>
+          <div class="list-info">
+            <div class="list-title">Konservativ</div>
+            <div class="list-subtitle">Kleine Anpassungen, stabil</div>
+          </div>
+        </div>
+        <div class="list-item" style="cursor:pointer;${pricingData.strategy==='balanced'?'border:2px solid #22c55e':''}" onclick="setPricingStrategy('balanced')">
+          <div class="list-icon">⚖️</div>
+          <div class="list-info">
+            <div class="list-title">Ausgewogen</div>
+            <div class="list-subtitle">Gute Balance</div>
+          </div>
+        </div>
+        <div class="list-item" style="cursor:pointer;${pricingData.strategy==='aggressive'?'border:2px solid #22c55e':''}" onclick="setPricingStrategy('aggressive')">
+          <div class="list-icon">🚀</div>
+          <div class="list-info">
+            <div class="list-title">Aggressiv</div>
+            <div class="list-subtitle">Max. Umsatz</div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px;background:#18181b;border-radius:10px;font-size:12px;color:#a1a1aa">
+        💡 Strategie beeinflusst alle Preisanpassungen: Wochenenden, Feiertage, Events
+      </div>
+    </div>
+  `;
+}
+
+// Show day price detail modal
+function showDayPriceDetail(propertyId, dateStr) {
+  const prop = pricingData.properties.find(p => p.id === propertyId);
+  const dailyPrices = pricingData.dailyPrices[propertyId];
+  const day = dailyPrices?.find(d => d.date === dateStr);
+  
+  if (!prop || !day) return;
+  
+  const date = new Date(dateStr);
+  const dateFormatted = date.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  
+  showModal(`
+    <div class="modal-title">📅 ${dateFormatted}</div>
+    <div style="margin-bottom:20px">
+      <div style="font-size:14px;color:#a1a1aa">${prop.name}</div>
+    </div>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <div style="background:#18181b;padding:16px;border-radius:10px;text-align:center">
+        <div style="font-size:12px;color:#71717a">Basispreis</div>
+        <div style="font-size:24px;font-weight:700">€${day.basePrice}</div>
+      </div>
+      <div style="background:${day.changePercent >= 0 ? '#22c55e15' : '#ef444415'};padding:16px;border-radius:10px;text-align:center">
+        <div style="font-size:12px;color:#71717a">Optimierter Preis</div>
+        <div style="font-size:24px;font-weight:700;color:${day.changePercent >= 0 ? '#22c55e' : '#ef4444'}">€${day.finalPrice}</div>
+        <div style="font-size:12px;color:${day.changePercent >= 0 ? '#22c55e' : '#ef4444'}">${day.changePercent >= 0 ? '+' : ''}${day.changePercent}%</div>
+      </div>
+    </div>
+    
+    ${day.isBooked ? `
+      <div style="background:#27272a;padding:16px;border-radius:10px;margin-bottom:20px;text-align:center">
+        <div style="font-size:24px;margin-bottom:8px">🔒</div>
+        <div style="color:#a1a1aa">Dieser Tag ist bereits gebucht</div>
+      </div>
+    ` : ''}
+    
+    ${day.factors.length > 0 ? `
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;color:#71717a;margin-bottom:8px">Preisfaktoren:</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${day.factors.map(f => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:#18181b;border-radius:8px">
+              <span style="font-size:13px">${f.label}</span>
+              <span style="color:${f.boost >= 0 ? '#22c55e' : '#ef4444'};font-weight:600">${f.boost >= 0 ? '+' : ''}${Math.round(f.boost * 100)}%</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+    
+    ${day.events.length > 0 ? `
+      <div style="margin-bottom:20px">
+        <div style="font-size:12px;color:#71717a;margin-bottom:8px">Events an diesem Tag:</div>
+        ${day.events.map(e => `
+          <div style="padding:12px;background:#f9731615;border:1px solid #f9731650;border-radius:8px;margin-bottom:8px">
+            <div style="font-weight:600">${e.name}</div>
+            <div style="font-size:12px;color:#a1a1aa">${e.venue}</div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+    
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Schließen</button>
+      ${!day.isBooked && smoobuConfig.connected ? `
+        <button class="btn btn-primary" onclick="applySingleDayPrice('${propertyId}', '${dateStr}');hideModal()" style="flex:1" ${day.applied ? 'disabled' : ''}>
+          ${day.applied ? '✓ Bereits übertragen' : '✓ Preis übernehmen'}
+        </button>
+      ` : ''}
+    </div>
+  `);
+}
+
+// Pricing Strategy Functions
+async function setPricingStrategy(strategy) {
+  pricingData.strategy = strategy;
+  localStorage.setItem('pricing_strategy', strategy);
+  
+  // Save to Supabase
+  saveAutomationSettings();
+  
+  // Recalculate all daily prices with new strategy
+  await calculateAllDailyPrices();
+  
+  showToast(`✅ Strategie auf "${strategy === 'conservative' ? 'Konservativ' : strategy === 'balanced' ? 'Ausgewogen' : 'Aggressiv'}" gesetzt`);
+  renderPage();
+}
+
+// Load saved strategy on init - now handled by loadAutomationSettings
+function loadPricingStrategy() {
+  // This is now a backup - primary loading happens in loadAutomationSettings
+  const saved = localStorage.getItem('pricing_strategy');
+  if (saved && !pricingData.strategy) {
+    pricingData.strategy = saved;
+  }
+}
+
+async function applyPrice(propId, newPrice) {
+  const prop = pricingData.properties.find(p => p.id === propId);
+  if (!prop) return;
+  
+  // Check if Smoobu is connected and auto-pricing is enabled
+  if (smoobuConfig.connected && automationSettings.autoPricing) {
+    showModal(`
+      <div style="text-align:center;padding:40px">
+        <div class="spinner" style="margin:0 auto 20px"></div>
+        <div style="font-size:16px;font-weight:600">Aktualisiere Preis...</div>
+        <div style="color:#71717a;font-size:13px;margin-top:8px">Sende an Smoobu → Airbnb/Booking</div>
+      </div>
+    `);
+    
+    try {
+      // Get dates for the next 30 days
+      const today = new Date();
+      const dates = [];
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        dates.push(d.toISOString().split('T')[0]);
+      }
+      
+      // Create date range string
+      const startDate = dates[0];
+      const endDate = dates[dates.length - 1];
+      
+      // Send to Smoobu via Edge Function
+      const response = await fetch(`${SMOOBU_PROXY_URL}?action=update-rates`, {
+        method: 'POST',
+        headers: {
+          'x-smoobu-key': smoobuConfig.apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          apartments: [propId],
+          operations: [{
+            dates: [`${startDate}:${endDate}`],
+            daily_price: newPrice
+          }]
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok || result.error) {
+        throw new Error(result.error || 'Preis-Update fehlgeschlagen');
+      }
+      
+      // Success - update local state
+      prop.currentPrice = newPrice;
+      
+      hideModal();
+      showToast(`✅ Preis auf €${newPrice} aktualisiert (Smoobu → Airbnb/Booking)`);
+      renderPage();
+      
+    } catch (error) {
+      hideModal();
+      console.error('Price update error:', error);
+      showModal(`
+        <div style="text-align:center;padding:20px">
+          <div style="font-size:64px;margin-bottom:16px">⚠️</div>
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px">Preis-Update fehlgeschlagen</div>
+          <div style="color:#ef4444;margin-bottom:16px;font-size:13px">${error.message}</div>
+          <div style="color:#71717a;font-size:12px;margin-bottom:24px">Der Preis wurde lokal aktualisiert, aber nicht zu Smoobu gesendet.</div>
+          <button class="btn btn-secondary" onclick="hideModal()" style="width:100%">Schließen</button>
+        </div>
+      `);
+      
+      // Still update locally
+      prop.currentPrice = newPrice;
+      renderPage();
+    }
+  } else {
+    // No Smoobu connection - just update locally
+    prop.currentPrice = newPrice;
+    showToast(`💰 Preis lokal auf €${newPrice} aktualisiert`);
+    renderPage();
+  }
+}
+
+// =====================
+// OTHER PAGES
+// =====================
+function renderBookings() {
+  if (!bookings.length) return '<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-title">Keine Buchungen</div><button class="btn btn-primary" onclick="showAddBook()">+ Buchung</button></div>';
+  
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div class="card-title" style="margin:0">📅 Alle Buchungen (${bookings.length})</div>
+        <button class="btn btn-sm btn-primary" onclick="showAddBook()">+ Neue Buchung</button>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Gast</th>
+            <th>Objekt</th>
+            <th>Check-in</th>
+            <th>Check-out</th>
+            <th>Betrag</th>
+            <th>Status</th>
+            <th style="width:100px">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bookings.map(b => `
+            <tr>
+              <td><strong>${b.guest_name}</strong></td>
+              <td>${b.properties?.name || '-'}</td>
+              <td>${fmtDate(b.check_in)}</td>
+              <td>${fmtDate(b.check_out)}</td>
+              <td><strong>€${b.total_price || 0}</strong></td>
+              <td><span class="tag ${b.status === 'cancelled' ? 'tag-red' : 'tag-green'}">${b.status === 'cancelled' ? 'Storniert' : 'Bestätigt'}</span></td>
+              <td>
+                <div style="display:flex;gap:4px">
+                  <button class="btn btn-sm btn-secondary" onclick="editBooking('${b.id}')" title="Bearbeiten">✏️</button>
+                  <button class="btn btn-sm btn-secondary" onclick="deleteBooking('${b.id}')" title="Löschen" style="color:#ef4444">🗑️</button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderProperties() {
+  if (!properties.length) return '<div class="empty-state"><div class="empty-icon">🏠</div><div class="empty-title">Keine Objekte</div><button class="btn btn-primary" onclick="showAddProp()">+ Objekt</button></div>';
+  
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-size:14px;color:#a1a1aa">${properties.length} Objekt${properties.length > 1 ? 'e' : ''}</div>
+      <button class="btn btn-sm btn-primary" onclick="showAddProp()">+ Neues Objekt</button>
+    </div>
+    <div class="grid-3">
+      ${properties.map(p => `
+        <div class="card property-card">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+            <div style="font-size:32px">${p.property_type === 'house' ? '🏡' : '🏢'}</div>
+            <span class="tag ${p.active !== false ? 'tag-green' : 'tag-orange'}">${p.active !== false ? 'Aktiv' : 'Inaktiv'}</span>
+          </div>
+          <div style="font-weight:700;font-size:16px;margin-bottom:4px">${p.name}</div>
+          <div style="color:#71717a;font-size:13px;margin-bottom:8px">${p.city || '-'}</div>
+          <div style="font-size:12px;color:#a1a1aa;margin-bottom:12px">🛏️ ${p.bedrooms || 1} Zimmer · 👥 ${p.max_guests || 2} Gäste</div>
+          ${p.base_price ? `<div style="font-size:18px;font-weight:700;color:#22c55e;margin-bottom:12px">€${p.base_price}/Nacht</div>` : '<div style="margin-bottom:12px"></div>'}
+          ${p.smoobu_id ? '<div style="font-size:10px;color:#71717a;margin-bottom:12px">🔗 Smoobu verbunden</div>' : '<div style="margin-bottom:12px"></div>'}
+          <div style="display:flex;gap:8px;border-top:1px solid #27272a;padding-top:12px;margin-top:auto">
+            <button class="btn btn-sm btn-secondary" onclick="editProperty('${p.id}')" style="flex:1">✏️ Bearbeiten</button>
+            <button class="btn btn-sm btn-secondary" onclick="deleteProperty('${p.id}')" style="color:#ef4444">🗑️</button>
+          </div>
+        </div>
+      `).join('')}
+      <div class="card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;min-height:220px;cursor:pointer" onclick="showAddProp()">
+        <div style="text-align:center;color:#71717a">
+          <div style="font-size:32px;margin-bottom:8px">+</div>
+          <div>Hinzufügen</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPartners() {
+  return '<div class="grid-2"><div class="card"><div class="card-title">🤝 Verbundene Partner</div><div class="empty-state" style="padding:30px"><div class="empty-icon">🔍</div><div class="empty-desc">Noch keine Partner</div></div></div><div class="card"><div class="card-title">🌟 Empfohlen</div><div class="list-item"><div class="list-icon">🧹</div><div class="list-info"><div class="list-title">CleanPro Berlin</div><div class="list-subtitle">⭐ 4.9 · Reinigung</div></div><span class="tag tag-green">🏅</span></div><div class="list-item"><div class="list-icon">🔐</div><div class="list-info"><div class="list-title">KeyMaster</div><div class="list-subtitle">⭐ 4.7 · Smart Lock</div></div><span class="tag tag-green">🏅</span></div></div></div>';
+}
+
+function renderAutomation() {
+  const smoobuConnected = smoobuConfig.connected;
+  const lastSync = smoobuConfig.lastSync ? new Date(smoobuConfig.lastSync).toLocaleString('de-DE') : 'Nie';
+  
+  // Calculate active features count
+  const activeFeatures = [
+    automationSettings.smartReplies,
+    automationSettings.reviewReplies,
+    automationSettings.autoPricing,
+    automationSettings.autoJobs,
+    smoobuConnected
+  ].filter(Boolean).length;
+  
+  const totalFeatures = 5;
+  const score = Math.round((activeFeatures / totalFeatures) * 100);
+  
+  return `
+    <div class="card card-ai" style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;gap:24px">
+        <div style="text-align:center">
+          <div style="font-size:48px;font-weight:700;color:#8b5cf6">${score}%</div>
+          <div style="font-size:11px;color:#a1a1aa">KI-Score</div>
+        </div>
+        <div style="flex:1;padding-left:20px;border-left:1px solid #27272a">
+          <div style="font-size:18px;font-weight:700;margin-bottom:4px">${activeFeatures} von ${totalFeatures} Features aktiv</div>
+          <div style="color:#a1a1aa;font-size:13px">Aktiviere mehr Features um Zeit zu sparen</div>
+          <div style="margin-top:12px;background:#27272a;border-radius:10px;height:8px;overflow:hidden">
+            <div style="background:linear-gradient(90deg,#8b5cf6,#a78bfa);height:100%;width:${score}%;transition:width .5s"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SMOOBU INTEGRATION -->
+    <div class="card" style="border-color:${smoobuConnected ? '#22c55e' : '#f97316'}50;background:linear-gradient(135deg,#131316,${smoobuConnected ? '#22c55e' : '#f97316'}08)">
+      <div class="card-title" style="font-size:16px">
+        <img src="https://www.smoobu.com/wp-content/uploads/2021/06/smoobu-logo.svg" style="height:24px;filter:brightness(0) invert(1)" onerror="this.style.display='none'">
+        🔗 Smoobu Integration
+        ${smoobuConnected ? '<span class="tag tag-green" style="margin-left:auto">✓ Verbunden</span>' : '<span class="tag tag-orange" style="margin-left:auto">Nicht verbunden</span>'}
+      </div>
+      
+      ${smoobuConnected ? `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
+          <div style="background:#18181b;padding:16px;border-radius:10px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:#22c55e">${properties.length}</div>
+            <div style="font-size:11px;color:#71717a">Objekte synchronisiert</div>
+          </div>
+          <div style="background:#18181b;padding:16px;border-radius:10px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:#3b82f6">${bookings.length}</div>
+            <div style="font-size:11px;color:#71717a">Buchungen importiert</div>
+          </div>
+          <div style="background:#18181b;padding:16px;border-radius:10px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:#8b5cf6">${getSyncIntervalDisplay()}</div>
+            <div style="font-size:11px;color:#71717a">Sync-Intervall</div>
+          </div>
+        </div>
+        
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#18181b;border-radius:10px;margin-bottom:16px">
+          <div style="width:10px;height:10px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite"></div>
+          <div style="flex:1">
+            <div style="font-size:13px">Auto-Sync aktiv</div>
+            <div style="font-size:11px;color:#71717a">Letzter Sync: ${lastSync}</div>
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="syncSmoobuNow()">🔄 Jetzt synchronisieren</button>
+        </div>
+        
+        <div style="display:flex;gap:12px">
+          <button class="btn btn-secondary" onclick="showSmoobuSettings()" style="flex:1">⚙️ Einstellungen</button>
+          <button class="btn btn-secondary" onclick="disconnectSmoobu()" style="color:#ef4444">Trennen</button>
+        </div>
+      ` : `
+        <p style="color:#a1a1aa;font-size:13px;margin-bottom:16px">
+          Verbinde dein Smoobu-Konto um Buchungen, Objekte und Preise automatisch zu synchronisieren.
+        </p>
+        
+        <div style="background:#18181b;border-radius:10px;padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;color:#a1a1aa;margin-bottom:12px">So findest du deinen API-Key:</div>
+          <ol style="font-size:12px;color:#71717a;padding-left:20px;line-height:1.8">
+            <li>Öffne <a href="https://login.smoobu.com" target="_blank" style="color:#f97316">login.smoobu.com</a></li>
+            <li>Gehe zu <strong>Einstellungen → Für Entwickler</strong></li>
+            <li>Klicke auf "API Key generieren"</li>
+            <li>Kopiere den Key und füge ihn unten ein</li>
+          </ol>
+        </div>
+        
+        <div style="margin-bottom:16px">
+          <label class="label">Smoobu API-Key</label>
+          <input class="input" type="password" id="smoobu-api-key" placeholder="Dein Smoobu API-Key..." value="${smoobuConfig.apiKey}">
+        </div>
+        
+        <button class="btn btn-primary" onclick="connectSmoobu()" style="width:100%">
+          🔗 Mit Smoobu verbinden
+        </button>
+      `}
+    </div>
+    
+    <!-- KI FEATURES -->
+    <div style="margin-top:24px;margin-bottom:16px;font-size:14px;font-weight:600;color:#a1a1aa">🤖 KI-Features</div>
+    
+    <div class="grid-2">
+      <div class="card" style="${automationSettings.smartReplies ? 'border-color:#22c55e50' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">💬 Smart Replies</div>
+          <button class="toggle ${automationSettings.smartReplies ? 'active' : ''}" onclick="toggleAutomation('smartReplies')">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p style="color:#a1a1aa;font-size:13px;margin-bottom:12px">KI schlägt automatisch passende Antworten auf Gästeanfragen vor</p>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${automationSettings.smartReplies 
+            ? '<span class="tag tag-green">✓ Aktiv</span><span style="font-size:11px;color:#71717a">~2h/Woche gespart</span>'
+            : '<span class="tag tag-orange">Deaktiviert</span>'}
+        </div>
+      </div>
+      
+      <div class="card" style="${automationSettings.reviewReplies ? 'border-color:#22c55e50' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">⭐ Review-Antworten</div>
+          <button class="toggle ${automationSettings.reviewReplies ? 'active' : ''}" onclick="toggleAutomation('reviewReplies')">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p style="color:#a1a1aa;font-size:13px;margin-bottom:12px">KI generiert personalisierte Antworten auf Gästebewertungen</p>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${automationSettings.reviewReplies 
+            ? '<span class="tag tag-green">✓ Aktiv</span><span style="font-size:11px;color:#71717a">~1h/Woche gespart</span>'
+            : '<span class="tag tag-orange">Deaktiviert</span>'}
+        </div>
+      </div>
+      
+      <div class="card" style="${automationSettings.autoPricing ? 'border-color:#22c55e50' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">💰 Auto-Pricing</div>
+          <button class="toggle ${automationSettings.autoPricing ? 'active' : ''}" onclick="toggleAutomation('autoPricing')">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p style="color:#a1a1aa;font-size:13px;margin-bottom:12px">KI optimiert Preise basierend auf Nachfrage, Events & Wettbewerb</p>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${automationSettings.autoPricing 
+            ? '<span class="tag tag-green">✓ Aktiv</span><span style="font-size:11px;color:#71717a">+18% Umsatz</span>'
+            : '<span class="tag tag-orange">Deaktiviert</span>'}
+        </div>
+      </div>
+      
+      <div class="card" style="${automationSettings.autoJobs ? 'border-color:#22c55e50' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">📋 Auto-Jobs</div>
+          <button class="toggle ${automationSettings.autoJobs ? 'active' : ''}" onclick="toggleAutomation('autoJobs')">
+            <span class="toggle-knob"></span>
+          </button>
+        </div>
+        <p style="color:#a1a1aa;font-size:13px;margin-bottom:12px">Erstellt automatisch Reinigungsaufträge bei Check-out</p>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${automationSettings.autoJobs 
+            ? '<span class="tag tag-green">✓ Aktiv</span><span style="font-size:11px;color:#71717a">~3h/Woche gespart</span>'
+            : '<span class="tag tag-orange">Deaktiviert</span>'}
+        </div>
+      </div>
+    </div>
+    
+    <!-- Zeit-Ersparnis Summary -->
+    <div class="card" style="margin-top:20px;background:linear-gradient(135deg,#131316,#22c55e08);border-color:#22c55e30">
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="font-size:40px">⏱️</div>
+        <div style="flex:1">
+          <div style="font-size:16px;font-weight:700;color:#22c55e">
+            ~${calculateTimeSaved()}h pro Woche gespart
+          </div>
+          <div style="font-size:12px;color:#a1a1aa;margin-top:4px">
+            Durch ${activeFeatures} aktive Automatisierungen
+          </div>
+        </div>
+        ${activeFeatures < totalFeatures ? `
+          <button class="btn btn-sm btn-success" onclick="activateAllAutomation()">
+            Alle aktivieren
+          </button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+// =====================
+// AUTOMATION TOGGLE FUNCTIONS
+// =====================
+
+function toggleAutomation(feature) {
+  // Toggle the setting
+  automationSettings[feature] = !automationSettings[feature];
+  
+  // Save to localStorage
+  localStorage.setItem('auto_' + feature.replace(/([A-Z])/g, '_$1').toLowerCase(), automationSettings[feature]);
+  
+  // Save to Supabase (for cross-device sync)
+  saveAutomationSettings();
+  
+  // Show feedback
+  const featureNames = {
+    smartReplies: 'Smart Replies',
+    reviewReplies: 'Review-Antworten',
+    autoPricing: 'Auto-Pricing',
+    autoJobs: 'Auto-Jobs'
+  };
+  
+  showToast(automationSettings[feature] 
+    ? `✅ ${featureNames[feature]} aktiviert` 
+    : `❌ ${featureNames[feature]} deaktiviert`
+  );
+  
+  // Re-render the page
+  renderPage();
+}
+
+function activateAllAutomation() {
+  automationSettings.smartReplies = true;
+  automationSettings.reviewReplies = true;
+  automationSettings.autoPricing = true;
+  automationSettings.autoJobs = true;
+  
+  // Save all
+  localStorage.setItem('auto_smart_replies', 'true');
+  localStorage.setItem('auto_review_replies', 'true');
+  localStorage.setItem('auto_pricing', 'true');
+  localStorage.setItem('auto_jobs', 'true');
+  
+  saveAutomationSettings();
+  showToast('✅ Alle Automatisierungen aktiviert!');
+  renderPage();
+}
+
+async function saveAutomationSettings() {
+  try {
+    await db.from('profiles').update({
+      automation_smart_replies: automationSettings.smartReplies,
+      automation_review_replies: automationSettings.reviewReplies,
+      automation_pricing: automationSettings.autoPricing,
+      automation_jobs: automationSettings.autoJobs,
+      smoobu_api_key: smoobuConfig.apiKey || null,
+      smoobu_connected: smoobuConfig.connected,
+      pricing_strategy: pricingData.strategy
+    }).eq('id', user.id);
+    
+    // Also save to localStorage as backup
+    localStorage.setItem('auto_smart_replies', automationSettings.smartReplies);
+    localStorage.setItem('auto_review_replies', automationSettings.reviewReplies);
+    localStorage.setItem('auto_pricing', automationSettings.autoPricing);
+    localStorage.setItem('auto_jobs', automationSettings.autoJobs);
+    localStorage.setItem('pricing_strategy', pricingData.strategy);
+    
+  } catch (e) {
+    console.log('Could not save to Supabase:', e);
+  }
+}
+
+async function loadAutomationSettings() {
+  try {
+    const { data } = await db.from('profiles').select('*').eq('id', user.id).single();
+    if (data) {
+      // Load automation settings
+      if (data.automation_smart_replies !== undefined && data.automation_smart_replies !== null) {
+        automationSettings.smartReplies = data.automation_smart_replies;
+      }
+      if (data.automation_review_replies !== undefined && data.automation_review_replies !== null) {
+        automationSettings.reviewReplies = data.automation_review_replies;
+      }
+      if (data.automation_pricing !== undefined && data.automation_pricing !== null) {
+        automationSettings.autoPricing = data.automation_pricing;
+      }
+      if (data.automation_jobs !== undefined && data.automation_jobs !== null) {
+        automationSettings.autoJobs = data.automation_jobs;
+      }
+      
+      // Load Smoobu settings
+      if (data.smoobu_api_key) {
+        smoobuConfig.apiKey = data.smoobu_api_key;
+        localStorage.setItem('smoobu_api_key', data.smoobu_api_key);
+      }
+      if (data.smoobu_connected !== undefined && data.smoobu_connected !== null) {
+        smoobuConfig.connected = data.smoobu_connected;
+        localStorage.setItem('smoobu_connected', data.smoobu_connected);
+      }
+      
+      // Load pricing strategy
+      if (data.pricing_strategy) {
+        pricingData.strategy = data.pricing_strategy;
+        localStorage.setItem('pricing_strategy', data.pricing_strategy);
+      }
+    }
+  } catch (e) {
+    console.log('Using localStorage settings:', e);
+  }
+}
+
+function calculateTimeSaved() {
+  let hours = 0;
+  if (automationSettings.smartReplies) hours += 2;
+  if (automationSettings.reviewReplies) hours += 1;
+  if (automationSettings.autoPricing) hours += 1.5;
+  if (automationSettings.autoJobs) hours += 3;
+  if (smoobuConfig.connected) hours += 2;
+  return hours;
+}
+
+// Check if feature is enabled (used by other modules)
+function isFeatureEnabled(feature) {
+  return automationSettings[feature] === true;
+}
+
+// =====================
+// SMOOBU FUNCTIONS
+// =====================
+
+async function connectSmoobu() {
+  const apiKey = document.getElementById('smoobu-api-key').value.trim();
+  if (!apiKey) {
+    alert('Bitte API-Key eingeben');
+    return;
+  }
+  
+  // Show loading
+  showModal(`
+    <div style="text-align:center;padding:40px">
+      <div class="spinner" style="margin:0 auto 20px"></div>
+      <div style="font-size:16px;font-weight:600">Verbinde mit Smoobu...</div>
+      <div style="color:#71717a;font-size:13px;margin-top:8px">API-Key wird überprüft</div>
+    </div>
+  `);
+  
+  try {
+    // Test API connection via Edge Function
+    const response = await fetch(`${SMOOBU_PROXY_URL}?action=me`, {
+      method: 'GET',
+      headers: { 
+        'x-smoobu-key': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok || data.error) {
+      throw new Error(data.error || data.details?.detail || 'API-Key ungültig');
+    }
+    
+    // Success! Save config
+    smoobuConfig.apiKey = apiKey;
+    smoobuConfig.connected = true;
+    smoobuConfig.lastSync = new Date().toISOString();
+    smoobuConfig.smoobuUser = data;
+    
+    // Save to localStorage
+    localStorage.setItem('smoobu_api_key', apiKey);
+    localStorage.setItem('smoobu_connected', 'true');
+    localStorage.setItem('smoobu_last_sync', smoobuConfig.lastSync);
+    
+    // Save to Supabase
+    await db.from('profiles').update({
+      smoobu_connected: true,
+      smoobu_last_sync: smoobuConfig.lastSync
+    }).eq('id', user.id);
+    
+    hideModal();
+    
+    // Show success with user info
+    showModal(`
+      <div style="text-align:center;padding:20px">
+        <div style="font-size:64px;margin-bottom:16px">✅</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px">Erfolgreich verbunden!</div>
+        <div style="color:#a1a1aa;margin-bottom:8px">Smoobu-Konto: ${data.firstName} ${data.lastName}</div>
+        <div style="color:#71717a;font-size:12px;margin-bottom:24px">${data.email}</div>
+        <button class="btn btn-primary" onclick="hideModal();syncSmoobuNow()" style="width:100%">🔄 Daten jetzt synchronisieren</button>
+      </div>
+    `);
+    
+    // Start auto-sync
+    startSmoobuAutoSync();
+    
+  } catch (error) {
+    hideModal();
+    showModal(`
+      <div style="text-align:center;padding:20px">
+        <div style="font-size:64px;margin-bottom:16px">❌</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px">Verbindung fehlgeschlagen</div>
+        <div style="color:#ef4444;margin-bottom:24px;font-size:13px">${error.message}</div>
+        <button class="btn btn-secondary" onclick="hideModal()" style="width:100%">Schließen</button>
+      </div>
+    `);
+  }
+}
+
+function disconnectSmoobu() {
+  if (!confirm('Smoobu-Verbindung wirklich trennen?')) return;
+  
+  smoobuConfig.connected = false;
+  smoobuConfig.apiKey = '';
+  
+  localStorage.removeItem('smoobu_api_key');
+  localStorage.removeItem('smoobu_connected');
+  localStorage.removeItem('smoobu_last_sync');
+  
+  if (smoobuConfig.syncInterval) {
+    clearInterval(smoobuConfig.syncInterval);
+  }
+  
+  // Update Supabase
+  db.from('hosts').update({ smoobu_connected: false }).eq('id', user.id);
+  
+  renderPage();
+}
+
+async function syncSmoobuNow() {
+  if (!smoobuConfig.apiKey) {
+    alert('Bitte zuerst Smoobu verbinden');
+    return;
+  }
+  
+  showModal(`
+    <div style="text-align:center;padding:40px">
+      <div class="spinner" style="margin:0 auto 20px"></div>
+      <div style="font-size:16px;font-weight:600">Synchronisiere...</div>
+      <div style="color:#71717a;font-size:13px;margin-top:8px" id="sync-status">Lade Objekte...</div>
+    </div>
+  `);
+  
+  try {
+    // Step 1: Sync Apartments from Smoobu
+    document.getElementById('sync-status').textContent = 'Lade Objekte aus Smoobu...';
+    
+    const apartmentsRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartments`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    });
+    const apartmentsData = await apartmentsRes.json();
+    
+    if (apartmentsData.apartments) {
+      smoobuConfig.smoobuApartments = apartmentsData.apartments;
+      
+      // Sync to Supabase
+      for (const apt of apartmentsData.apartments) {
+        try {
+          // Get details for each apartment
+          const detailRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartment&id=${apt.id}`, {
+            headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+          });
+          const detail = await detailRes.json();
+          
+          // Check if property already exists
+          const { data: existingProps } = await db.from('properties')
+            .select('id')
+            .eq('smoobu_id', apt.id)
+            .limit(1);
+          
+          const existing = existingProps && existingProps.length > 0 ? existingProps[0] : null;
+          
+          const propertyData = {
+            host_id: user.id,
+            smoobu_id: apt.id,
+            name: apt.name,
+            city: detail.location?.city || '',
+            zip: detail.location?.zip || '',
+            street: detail.location?.street || '',
+            country: detail.location?.country || '',
+            bedrooms: detail.rooms?.bedrooms || 1,
+            max_guests: detail.rooms?.maxOccupancy || 2,
+            base_price: detail.price?.minimal ? parseFloat(detail.price.minimal) : null,
+            property_type: 'apartment',
+            active: true
+          };
+          
+          if (existing) {
+            // Update existing
+            await db.from('properties').update(propertyData).eq('id', existing.id);
+          } else {
+            // Insert new
+            await db.from('properties').insert(propertyData);
+          }
+        } catch (propError) {
+          console.error('Error syncing property:', apt.id, propError);
+        }
+      }
+    }
+    
+    // Step 2: Sync Bookings from Smoobu
+    document.getElementById('sync-status').textContent = 'Lade Buchungen aus Smoobu...';
+    
+    const bookingsRes = await fetch(`${SMOOBU_PROXY_URL}?action=bookings`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    });
+    const bookingsData = await bookingsRes.json();
+    
+    if (bookingsData.bookings && bookingsData.bookings.length > 0) {
+      for (const booking of bookingsData.bookings) {
+        try {
+          // Find local property by smoobu_id
+          const { data: localProps } = await db.from('properties')
+            .select('id')
+            .eq('smoobu_id', booking.apartment?.id)
+            .limit(1);
+          
+          const localProp = localProps && localProps.length > 0 ? localProps[0] : null;
+          
+          if (localProp) {
+            // Check if booking already exists
+            const { data: existingBookings } = await db.from('bookings')
+              .select('id')
+              .eq('smoobu_id', booking.id)
+              .limit(1);
+            
+            const existingBooking = existingBookings && existingBookings.length > 0 ? existingBookings[0] : null;
+            
+            const bookingData = {
+              host_id: user.id,
+              property_id: localProp.id,
+              smoobu_id: booking.id,
+              guest_name: booking['guest-name'] || 'Unbekannt',
+              guest_email: booking.email || '',
+              guest_phone: booking.phone || '',
+              check_in: booking.arrival,
+              check_out: booking.departure,
+              total_price: booking.price || 0,
+              adults: booking.adults || 1,
+              children: booking.children || 0,
+              status: booking.type === 'cancellation' ? 'cancelled' : 'confirmed',
+              source: booking.channel?.name || 'Smoobu'
+            };
+            
+            if (existingBooking) {
+              // Update existing
+              await db.from('bookings').update(bookingData).eq('id', existingBooking.id);
+            } else {
+              // Insert new
+              await db.from('bookings').insert(bookingData);
+            }
+          }
+        } catch (bookingError) {
+          console.error('Error syncing booking:', booking.id, bookingError);
+        }
+      }
+    }
+    
+    // Step 3: Update pricing data from Smoobu
+    document.getElementById('sync-status').textContent = 'Lade Preise...';
+    
+    if (smoobuConfig.smoobuApartments.length > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const apartmentIds = smoobuConfig.smoobuApartments.map(a => a.id).join(',');
+      
+      const ratesRes = await fetch(
+        `${SMOOBU_PROXY_URL}?action=rates&apartments=${apartmentIds}&start_date=${today}&end_date=${endDate}`,
+        { headers: { 'x-smoobu-key': smoobuConfig.apiKey } }
+      );
+      const ratesData = await ratesRes.json();
+      
+      // Update local pricing data
+      if (ratesData.data) {
+        pricingData.properties = smoobuConfig.smoobuApartments.map(apt => {
+          const rates = ratesData.data[apt.id] || {};
+          const prices = Object.values(rates).map(r => r.price).filter(p => p);
+          const avgPrice = prices.length ? Math.round(prices.reduce((a,b) => a+b, 0) / prices.length) : 80;
+          
+          return {
+            id: apt.id,
+            name: apt.name,
+            basePrice: avgPrice,
+            currentPrice: avgPrice,
+            suggestedPrice: Math.round(avgPrice * 1.1), // Simple suggestion: +10%
+            occupancy: Math.round(Math.random() * 40 + 50), // Placeholder
+            factors: ['Saison-Anpassung', 'Wochenend-Aufschlag']
+          };
+        });
+      }
+    }
+    
+    // Update last sync time
+    smoobuConfig.lastSync = new Date().toISOString();
+    localStorage.setItem('smoobu_last_sync', smoobuConfig.lastSync);
+    
+    // Reload data from Supabase
+    await loadData();
+    
+    hideModal();
+    renderPage();
+    
+    // Show success toast
+    const syncedProps = smoobuConfig.smoobuApartments.length;
+    const syncedBookings = bookingsData.bookings?.length || 0;
+    showToast(`✅ Sync fertig: ${syncedProps} Objekte, ${syncedBookings} Buchungen`);
+    
+  } catch (error) {
+    hideModal();
+    console.error('Sync error:', error);
+    showModal(`
+      <div style="text-align:center;padding:20px">
+        <div style="font-size:64px;margin-bottom:16px">⚠️</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px">Sync-Fehler</div>
+        <div style="color:#ef4444;margin-bottom:24px;font-size:13px">${error.message}</div>
+        <button class="btn btn-secondary" onclick="hideModal()" style="width:100%">Schließen</button>
+      </div>
+    `);
+  }
+}
+
+function startSmoobuAutoSync() {
+  // Clear existing interval
+  if (smoobuConfig.syncInterval) {
+    clearInterval(smoobuConfig.syncInterval);
+    smoobuConfig.syncInterval = null;
+  }
+  
+  // Get saved interval (default: 5 minutes)
+  const intervalMinutes = parseInt(localStorage.getItem('smoobu_sync_interval')) || 5;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  
+  console.log(`Auto-sync started: every ${intervalMinutes} minutes`);
+  
+  // Start the interval
+  smoobuConfig.syncInterval = setInterval(async () => {
+    if (smoobuConfig.connected && smoobuConfig.apiKey) {
+      console.log('Auto-sync Smoobu running...');
+      try {
+        await syncSmoobuSilent();
+      } catch (e) {
+        console.error('Auto-sync error:', e);
+      }
+    }
+  }, intervalMs);
+}
+
+// Silent sync (no modals, just background update)
+async function syncSmoobuSilent() {
+  try {
+    // Sync Apartments
+    const apartmentsRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartments`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    });
+    const apartmentsData = await apartmentsRes.json();
+    
+    if (apartmentsData.apartments) {
+      smoobuConfig.smoobuApartments = apartmentsData.apartments;
+      
+      for (const apt of apartmentsData.apartments) {
+        try {
+          const detailRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartment&id=${apt.id}`, {
+            headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+          });
+          const detail = await detailRes.json();
+          
+          const { data: existingProps } = await db.from('properties')
+            .select('id')
+            .eq('smoobu_id', apt.id)
+            .limit(1);
+          
+          const existing = existingProps && existingProps.length > 0 ? existingProps[0] : null;
+          
+          const propertyData = {
+            host_id: user.id,
+            smoobu_id: apt.id,
+            name: apt.name,
+            city: detail.location?.city || '',
+            zip: detail.location?.zip || '',
+            street: detail.location?.street || '',
+            country: detail.location?.country || '',
+            bedrooms: detail.rooms?.bedrooms || 1,
+            max_guests: detail.rooms?.maxOccupancy || 2,
+            base_price: detail.price?.minimal ? parseFloat(detail.price.minimal) : null,
+            property_type: 'apartment',
+            active: true
+          };
+          
+          if (existing) {
+            await db.from('properties').update(propertyData).eq('id', existing.id);
+          } else {
+            await db.from('properties').insert(propertyData);
+          }
+        } catch (e) {
+          console.error('Silent sync property error:', apt.id, e);
+        }
+      }
+    }
+    
+    // Sync Bookings
+    const bookingsRes = await fetch(`${SMOOBU_PROXY_URL}?action=bookings`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    });
+    const bookingsData = await bookingsRes.json();
+    
+    if (bookingsData.bookings && bookingsData.bookings.length > 0) {
+      for (const booking of bookingsData.bookings) {
+        try {
+          const { data: localProps } = await db.from('properties')
+            .select('id')
+            .eq('smoobu_id', booking.apartment?.id)
+            .limit(1);
+          
+          const localProp = localProps && localProps.length > 0 ? localProps[0] : null;
+          
+          if (localProp) {
+            const { data: existingBookings } = await db.from('bookings')
+              .select('id')
+              .eq('smoobu_id', booking.id)
+              .limit(1);
+            
+            const existingBooking = existingBookings && existingBookings.length > 0 ? existingBookings[0] : null;
+            
+            const bookingData = {
+              host_id: user.id,
+              property_id: localProp.id,
+              smoobu_id: booking.id,
+              guest_name: booking['guest-name'] || 'Unbekannt',
+              guest_email: booking.email || '',
+              guest_phone: booking.phone || '',
+              check_in: booking.arrival,
+              check_out: booking.departure,
+              total_price: booking.price || 0,
+              adults: booking.adults || 1,
+              children: booking.children || 0,
+              status: booking.type === 'cancellation' ? 'cancelled' : 'confirmed',
+              source: booking.channel?.name || 'Smoobu'
+            };
+            
+            if (existingBooking) {
+              await db.from('bookings').update(bookingData).eq('id', existingBooking.id);
+            } else {
+              await db.from('bookings').insert(bookingData);
+            }
+          }
+        } catch (e) {
+          console.error('Silent sync booking error:', booking.id, e);
+        }
+      }
+    }
+    
+    // Update last sync time
+    smoobuConfig.lastSync = new Date().toISOString();
+    localStorage.setItem('smoobu_last_sync', smoobuConfig.lastSync);
+    
+    // Reload data
+    await loadData();
+    
+    // Update UI if on dashboard
+    if (currentPage === 'dashboard' || currentPage === 'automation') {
+      renderPage();
+    }
+    
+    console.log('Auto-sync completed:', new Date().toLocaleTimeString());
+    
+  } catch (error) {
+    console.error('Silent sync error:', error);
+  }
+}
+
+function stopSmoobuAutoSync() {
+  if (smoobuConfig.syncInterval) {
+    clearInterval(smoobuConfig.syncInterval);
+    smoobuConfig.syncInterval = null;
+    console.log('Auto-sync stopped');
+  }
+}
+
+function getSyncIntervalDisplay() {
+  const interval = localStorage.getItem('smoobu_sync_interval') || '5';
+  if (interval === '1') return '1 Min';
+  if (interval === '60') return '1 Std';
+  return interval + ' Min';
+}
+
+function showSmoobuSettings() {
+  const currentInterval = localStorage.getItem('smoobu_sync_interval') || '5';
+  
+  showModal(`
+    <div class="modal-title">⚙️ Smoobu Einstellungen</div>
+    
+    <div style="margin-bottom:20px">
+      <label class="label">Sync-Intervall</label>
+      <select class="input" id="sync-interval">
+        <option value="1" ${currentInterval === '1' ? 'selected' : ''}>Jede Minute</option>
+        <option value="5" ${currentInterval === '5' ? 'selected' : ''}>Alle 5 Minuten</option>
+        <option value="15" ${currentInterval === '15' ? 'selected' : ''}>Alle 15 Minuten</option>
+        <option value="30" ${currentInterval === '30' ? 'selected' : ''}>Alle 30 Minuten</option>
+        <option value="60" ${currentInterval === '60' ? 'selected' : ''}>Stündlich</option>
+      </select>
+      <div style="font-size:11px;color:#71717a;margin-top:6px">
+        Automatische Synchronisierung mit Smoobu im Hintergrund
+      </div>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <label class="label">Was synchronisieren?</label>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="sync-properties" checked> <span>Objekte/Apartments</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="sync-bookings" checked> <span>Buchungen</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <input type="checkbox" id="sync-prices" checked> <span>Preise/Raten</span>
+        </label>
+      </div>
+    </div>
+    
+    <div style="padding:12px;background:#18181b;border-radius:10px;margin-bottom:20px">
+      <div style="font-size:12px;color:#71717a">API-Key (versteckt)</div>
+      <div style="font-family:monospace;font-size:13px;margin-top:4px">••••••••${smoobuConfig.apiKey.slice(-8)}</div>
+    </div>
+    
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+      <button class="btn btn-primary" onclick="saveSmoobuSettings()" style="flex:1">💾 Speichern</button>
+    </div>
+  `);
+}
+
+async function saveSmoobuSettings() {
+  // Save sync interval
+  const interval = document.getElementById('sync-interval').value;
+  localStorage.setItem('smoobu_sync_interval', interval);
+  
+  // Save to Supabase
+  try {
+    await db.from('profiles').update({
+      smoobu_sync_interval: parseInt(interval)
+    }).eq('id', user.id);
+  } catch (e) {
+    console.log('Could not save interval to Supabase:', e);
+  }
+  
+  // Restart auto-sync with new interval
+  startSmoobuAutoSync();
+  
+  hideModal();
+  showToast(`✅ Sync-Intervall auf ${interval === '1' ? '1 Minute' : interval + ' Minuten'} gesetzt`);
+  renderPage();
+}
+
+function showToast(message) {
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#22c55e;color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;animation:slideIn .3s ease';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+// Check Smoobu connection on load
+function checkSmoobuConnection() {
+  const connected = localStorage.getItem('smoobu_connected') === 'true';
+  const apiKey = localStorage.getItem('smoobu_api_key');
+  const lastSync = localStorage.getItem('smoobu_last_sync');
+  
+  if (connected && apiKey) {
+    smoobuConfig.connected = true;
+    smoobuConfig.apiKey = apiKey;
+    smoobuConfig.lastSync = lastSync;
+    startSmoobuAutoSync();
+  }
+}
+
+function renderSettings() {
+  return `
+    <div class="card">
+      <div class="card-title">👤 Profil</div>
+      <div class="grid-2" style="gap:16px;margin-bottom:20px">
+        <div><label class="label">Vorname</label><input class="input" value="${profile?.first_name || ''}" id="s-fn"></div>
+        <div><label class="label">Nachname</label><input class="input" value="${profile?.last_name || ''}" id="s-ln"></div>
+      </div>
+      <div style="margin-bottom:20px">
+        <label class="label">E-Mail</label>
+        <input class="input" value="${user?.email || ''}" disabled style="opacity:0.6">
+      </div>
+      <div style="margin-bottom:20px">
+        <label class="label">Telefon</label>
+        <input class="input" value="${profile?.phone || ''}" placeholder="+49 123 456789" id="s-ph">
+      </div>
+      <button class="btn btn-primary" onclick="saveProfile()">💾 Speichern</button>
+    </div>
+    
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">🎓 Hilfe & Tutorial</div>
+      <div style="color:#a1a1aa;font-size:13px;margin-bottom:16px">
+        Möchtest du das interaktive Tutorial nochmal durchlaufen?
+      </div>
+      <button class="btn btn-secondary" onclick="resetTutorial()">
+        🔄 Tutorial erneut starten
+      </button>
+    </div>
+    
+    <div class="card" style="margin-top:16px">
+      <div class="card-title">⚠️ Gefahrenzone</div>
+      <div style="color:#a1a1aa;font-size:13px;margin-bottom:16px">
+        Achtung: Diese Aktionen können nicht rückgängig gemacht werden.
+      </div>
+      <button class="btn btn-secondary" style="color:#ef4444" onclick="confirmLogout()">
+        🚪 Abmelden
+      </button>
+    </div>
+  `;
+}
+
+function confirmLogout() {
+  showModal(`
+    <div style="text-align:center;padding:20px">
+      <div style="font-size:48px;margin-bottom:16px">👋</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">Wirklich abmelden?</div>
+      <div style="color:#a1a1aa;margin-bottom:24px">Du kannst dich jederzeit wieder anmelden.</div>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+        <button class="btn btn-primary" onclick="doLogout()" style="flex:1">Abmelden</button>
+      </div>
+    </div>
+  `);
+}
+
+async function doLogout() {
+  await db.auth.signOut();
+  window.location.href = 'auth.html';
+}
+
+// =====================
+// MODALS
+// =====================
+function showModal(html) {
+  document.getElementById('modal-content').innerHTML = html;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function hideModal() {
+  document.getElementById('modal').style.display = 'none';
+}
+
+function showAddProp() {
+  showModal('<div class="modal-title">🏠 Neues Objekt</div><div style="margin-bottom:16px"><label class="label">Name *</label><input class="input" id="p-name" placeholder="z.B. Gemütliche Wohnung"></div><div class="grid-2" style="gap:12px;margin-bottom:16px"><div><label class="label">Stadt</label><input class="input" id="p-city" placeholder="Berlin"></div><div><label class="label">PLZ</label><input class="input" id="p-zip" placeholder="10115"></div></div><div class="grid-2" style="gap:12px;margin-bottom:16px"><div><label class="label">Schlafzimmer</label><input class="input" type="number" id="p-bed" value="1" min="1"></div><div><label class="label">Max Gäste</label><input class="input" type="number" id="p-guests" value="2" min="1"></div></div><div style="margin-bottom:20px"><label class="label">Preis/Nacht (€)</label><input class="input" type="number" id="p-price" placeholder="80"></div><div style="display:flex;gap:12px"><button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button><button class="btn btn-primary" onclick="addProp()" style="flex:1">✓ Anlegen</button></div>');
+}
+
+async function addProp() {
+  const name = document.getElementById('p-name').value.trim();
+  if (!name) { alert('Bitte Namen eingeben'); return; }
+  const {data, error} = await db.from('properties').insert({host_id:user.id, name, city:document.getElementById('p-city').value.trim(), zip:document.getElementById('p-zip').value.trim(), bedrooms:parseInt(document.getElementById('p-bed').value)||1, max_guests:parseInt(document.getElementById('p-guests').value)||2, base_price:parseFloat(document.getElementById('p-price').value)||null, property_type:'apartment', active:true}).select().single();
+  if (error) alert('Fehler: ' + error.message);
+  else { properties.unshift(data); hideModal(); renderPage(); }
+}
+
+function showAddBook() {
+  if (!properties.length) { alert('Bitte erst Objekt anlegen'); return; }
+  showModal('<div class="modal-title">📅 Neue Buchung</div><div style="margin-bottom:16px"><label class="label">Objekt *</label><select class="input" id="b-prop">' + properties.map(p => '<option value="' + p.id + '">' + p.name + '</option>').join('') + '</select></div><div style="margin-bottom:16px"><label class="label">Gast *</label><input class="input" id="b-guest" placeholder="Max Mustermann"></div><div class="grid-2" style="gap:12px;margin-bottom:16px"><div><label class="label">Check-in</label><input class="input" type="date" id="b-in"></div><div><label class="label">Check-out</label><input class="input" type="date" id="b-out"></div></div><div style="margin-bottom:20px"><label class="label">Preis (€)</label><input class="input" type="number" id="b-price" placeholder="350"></div><div style="display:flex;gap:12px"><button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button><button class="btn btn-primary" onclick="addBook()" style="flex:1">✓ Speichern</button></div>');
+}
+
+async function addBook() {
+  const guest = document.getElementById('b-guest').value.trim();
+  const ci = document.getElementById('b-in').value;
+  const co = document.getElementById('b-out').value;
+  if (!guest || !ci || !co) { alert('Bitte alle Felder ausfüllen'); return; }
+  const {data, error} = await db.from('bookings').insert({host_id:user.id, property_id:document.getElementById('b-prop').value, guest_name:guest, check_in:ci, check_out:co, total_price:parseFloat(document.getElementById('b-price').value)||0, status:'confirmed', source:'manual'}).select('*,properties(name)').single();
+  if (error) alert('Fehler: ' + error.message);
+  else { bookings.unshift(data); hideModal(); renderPage(); }
+}
+
+// =====================
+// EDIT & DELETE FUNCTIONS
+// =====================
+
+function editProperty(id) {
+  const p = properties.find(prop => prop.id === id);
+  if (!p) return;
+  
+  showModal(`
+    <div class="modal-title">✏️ Objekt bearbeiten</div>
+    <div style="margin-bottom:16px">
+      <label class="label">Name *</label>
+      <input class="input" id="ep-name" value="${p.name || ''}" placeholder="z.B. Gemütliche Wohnung">
+    </div>
+    <div class="grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="label">Stadt</label><input class="input" id="ep-city" value="${p.city || ''}" placeholder="Berlin"></div>
+      <div><label class="label">PLZ</label><input class="input" id="ep-zip" value="${p.zip || ''}" placeholder="10115"></div>
+    </div>
+    <div class="grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="label">Schlafzimmer</label><input class="input" type="number" id="ep-bed" value="${p.bedrooms || 1}" min="1"></div>
+      <div><label class="label">Max Gäste</label><input class="input" type="number" id="ep-guests" value="${p.max_guests || 2}" min="1"></div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label class="label">Preis/Nacht (€)</label>
+      <input class="input" type="number" id="ep-price" value="${p.base_price || ''}" placeholder="80">
+    </div>
+    <div style="margin-bottom:20px">
+      <label class="label">Status</label>
+      <select class="input" id="ep-active">
+        <option value="true" ${p.active !== false ? 'selected' : ''}>Aktiv</option>
+        <option value="false" ${p.active === false ? 'selected' : ''}>Inaktiv</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+      <button class="btn btn-primary" onclick="updateProperty('${id}')" style="flex:1">✓ Speichern</button>
+    </div>
+  `);
+}
+
+async function updateProperty(id) {
+  const name = document.getElementById('ep-name').value.trim();
+  if (!name) { alert('Bitte Namen eingeben'); return; }
+  
+  const updateData = {
+    name,
+    city: document.getElementById('ep-city').value.trim(),
+    zip: document.getElementById('ep-zip').value.trim(),
+    bedrooms: parseInt(document.getElementById('ep-bed').value) || 1,
+    max_guests: parseInt(document.getElementById('ep-guests').value) || 2,
+    base_price: parseFloat(document.getElementById('ep-price').value) || null,
+    active: document.getElementById('ep-active').value === 'true'
+  };
+  
+  const {error} = await db.from('properties').update(updateData).eq('id', id);
+  
+  if (error) {
+    alert('Fehler: ' + error.message);
+  } else {
+    // Update local data
+    const idx = properties.findIndex(p => p.id === id);
+    if (idx !== -1) properties[idx] = {...properties[idx], ...updateData};
+    hideModal();
+    showToast('✅ Objekt aktualisiert');
+    renderPage();
+  }
+}
+
+async function deleteProperty(id) {
+  const p = properties.find(prop => prop.id === id);
+  if (!p) return;
+  
+  showModal(`
+    <div style="text-align:center;padding:20px">
+      <div style="font-size:48px;margin-bottom:16px">🗑️</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">Objekt löschen?</div>
+      <div style="color:#a1a1aa;margin-bottom:8px">"${p.name}"</div>
+      <div style="color:#ef4444;font-size:12px;margin-bottom:24px">
+        ⚠️ Alle zugehörigen Buchungen werden ebenfalls gelöscht!
+      </div>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+        <button class="btn btn-primary" onclick="confirmDeleteProperty('${id}')" style="flex:1;background:#ef4444">🗑️ Löschen</button>
+      </div>
+    </div>
+  `);
+}
+
+async function confirmDeleteProperty(id) {
+  // First delete related bookings
+  await db.from('bookings').delete().eq('property_id', id);
+  
+  // Then delete property
+  const {error} = await db.from('properties').delete().eq('id', id);
+  
+  if (error) {
+    alert('Fehler: ' + error.message);
+  } else {
+    // Remove from local data
+    properties = properties.filter(p => p.id !== id);
+    bookings = bookings.filter(b => b.property_id !== id);
+    hideModal();
+    showToast('✅ Objekt gelöscht');
+    renderPage();
+  }
+}
+
+function editBooking(id) {
+  const b = bookings.find(book => book.id === id);
+  if (!b) return;
+  
+  showModal(`
+    <div class="modal-title">✏️ Buchung bearbeiten</div>
+    <div style="margin-bottom:16px">
+      <label class="label">Objekt *</label>
+      <select class="input" id="eb-prop">
+        ${properties.map(p => `<option value="${p.id}" ${p.id === b.property_id ? 'selected' : ''}>${p.name}</option>`).join('')}
+      </select>
+    </div>
+    <div style="margin-bottom:16px">
+      <label class="label">Gast *</label>
+      <input class="input" id="eb-guest" value="${b.guest_name || ''}" placeholder="Max Mustermann">
+    </div>
+    <div class="grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="label">Check-in</label><input class="input" type="date" id="eb-in" value="${b.check_in || ''}"></div>
+      <div><label class="label">Check-out</label><input class="input" type="date" id="eb-out" value="${b.check_out || ''}"></div>
+    </div>
+    <div class="grid-2" style="gap:12px;margin-bottom:16px">
+      <div><label class="label">Preis (€)</label><input class="input" type="number" id="eb-price" value="${b.total_price || ''}" placeholder="350"></div>
+      <div>
+        <label class="label">Status</label>
+        <select class="input" id="eb-status">
+          <option value="confirmed" ${b.status === 'confirmed' ? 'selected' : ''}>Bestätigt</option>
+          <option value="cancelled" ${b.status === 'cancelled' ? 'selected' : ''}>Storniert</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+      <button class="btn btn-primary" onclick="updateBooking('${id}')" style="flex:1">✓ Speichern</button>
+    </div>
+  `);
+}
+
+async function updateBooking(id) {
+  const guest = document.getElementById('eb-guest').value.trim();
+  const ci = document.getElementById('eb-in').value;
+  const co = document.getElementById('eb-out').value;
+  
+  if (!guest || !ci || !co) { alert('Bitte alle Felder ausfüllen'); return; }
+  
+  const updateData = {
+    property_id: document.getElementById('eb-prop').value,
+    guest_name: guest,
+    check_in: ci,
+    check_out: co,
+    total_price: parseFloat(document.getElementById('eb-price').value) || 0,
+    status: document.getElementById('eb-status').value
+  };
+  
+  const {error} = await db.from('bookings').update(updateData).eq('id', id);
+  
+  if (error) {
+    alert('Fehler: ' + error.message);
+  } else {
+    // Update local data
+    const idx = bookings.findIndex(b => b.id === id);
+    if (idx !== -1) {
+      bookings[idx] = {...bookings[idx], ...updateData};
+      // Update property name reference
+      const prop = properties.find(p => p.id === updateData.property_id);
+      if (prop) bookings[idx].properties = {name: prop.name};
+    }
+    hideModal();
+    showToast('✅ Buchung aktualisiert');
+    renderPage();
+  }
+}
+
+async function deleteBooking(id) {
+  const b = bookings.find(book => book.id === id);
+  if (!b) return;
+  
+  showModal(`
+    <div style="text-align:center;padding:20px">
+      <div style="font-size:48px;margin-bottom:16px">🗑️</div>
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">Buchung löschen?</div>
+      <div style="color:#a1a1aa;margin-bottom:8px">Gast: ${b.guest_name}</div>
+      <div style="color:#71717a;font-size:12px;margin-bottom:24px">
+        ${fmtDate(b.check_in)} - ${fmtDate(b.check_out)} · €${b.total_price || 0}
+      </div>
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-secondary" onclick="hideModal()" style="flex:1">Abbrechen</button>
+        <button class="btn btn-primary" onclick="confirmDeleteBooking('${id}')" style="flex:1;background:#ef4444">🗑️ Löschen</button>
+      </div>
+    </div>
+  `);
+}
+
+async function confirmDeleteBooking(id) {
+  const {error} = await db.from('bookings').delete().eq('id', id);
+  
+  if (error) {
+    alert('Fehler: ' + error.message);
+  } else {
+    // Remove from local data
+    bookings = bookings.filter(b => b.id !== id);
+    hideModal();
+    showToast('✅ Buchung gelöscht');
+    renderPage();
+  }
+}
+
+async function saveProfile() {
+  const {error} = await db.from('profiles').update({first_name:document.getElementById('s-fn').value.trim(), last_name:document.getElementById('s-ln').value.trim(), phone:document.getElementById('s-ph').value.trim()}).eq('id', user.id);
+  if (error) alert('Fehler: ' + error.message);
+  else { alert('Gespeichert!'); const {data} = await db.from('profiles').select('*').eq('id', user.id).single(); profile = data; renderUser(); }
+}
+
+// =====================
+// HELPERS
+// =====================
+function fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'}) : '-';
+}
+
+// =====================
+// EVENTS
+// =====================
+function bindEvents() {
+  document.querySelectorAll('.nav-item').forEach(i => i.onclick = () => setPage(i.dataset.page));
+  document.getElementById('logout-btn').onclick = async () => { await db.auth.signOut(); window.location.href = 'auth.html'; };
+  document.getElementById('modal').onclick = e => { if (e.target.id === 'modal') hideModal(); };
+}
+
+// =====================
+// START
+// =====================
+init();
+</script>
+</body>
+</html>
