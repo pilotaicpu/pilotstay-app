@@ -5873,6 +5873,24 @@ function bindEvents() {
 // START
 // =====================
 init();
+<script>
+/**
+ * Updates the KPI counters in the pricing section
+ * Safe fallback if elements are missing
+ */
+function updatePricingKPI({ totalEvents = 0, eventDays = 0, avgImpact = 0 }) {
+  try {
+    const eventsEl = document.querySelector('[data-kpi="events"]');
+    const eventDaysEl = document.querySelector('[data-kpi="event-days"]');
+    const impactEl = document.querySelector('[data-kpi="impact"]');
+
+    if (eventsEl) eventsEl.textContent = totalEvents;
+    if (eventDaysEl) eventDaysEl.textContent = eventDays;
+    if (impactEl) impactEl.textContent = `${avgImpact > 0 ? '+' : ''}${avgImpact}%`;
+  } catch (err) {
+    console.warn('updatePricingKPI failed silently:', err);
+  }
+}
 </script>
 </body>
 </html>
