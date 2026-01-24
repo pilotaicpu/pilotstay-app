@@ -1212,7 +1212,7 @@ function calculateDayPrice(prop, date, dateStr) {
 }
 
 // Fetch events from Ticketmaster for all property cities
-async async // Normalize events so the rest of the dashboard can work with either
+// Normalize events so the rest of the dashboard can work with either
 // (a) raw Ticketmaster Discovery API events OR
 // (b) simplified events returned by our /api/ticketmaster/events proxy.
 function normalizeTicketmasterEvent(ev, cityFallback = '') {
