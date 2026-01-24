@@ -1212,7 +1212,7 @@ function calculateDayPrice(prop, date, dateStr) {
 }
 
 // Fetch events from Ticketmaster for all property cities
-async async function fetchEventsForProperties() {
+async function fetchEventsForProperties() {
   // Only fetch once per hour
   const now = Date.now();
   if (pricingData.lastEventFetch && (now - pricingData.lastEventFetch) < 3600000) {
