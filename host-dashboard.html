@@ -3532,13 +3532,18 @@ async function compareWithSmoobuPrices() {
       console.log(`[Smoobu Rates] POST Request Body:`, JSON.stringify(requestBody));
       
       const response = await fetch(`${SMOOBU_PROXY_URL}?action=rates`, {
-        method: 'POST',
+       method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-smoobu-key': apiKey
         },
-        body: JSON.stringify(requestBody)
-      });
+        body: JSON.stringify({
+          // WICHTIG: Die ID muss in ein Array [ ], auch wenn es nur eine ist!
+          apartments: [ Number(apartment.smoobu_id || apartment.smoobuId) ],
+          // WICHTIG: startDate und endDate (CamelCase)
+          startDate: startDate,
+          endDate: endDate
+        })
       
       const data = await response.json();
       
