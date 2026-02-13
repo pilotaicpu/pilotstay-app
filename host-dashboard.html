@@ -16674,78 +16674,77 @@ function fmtDate(d) {
 let pilotStayAgent = null;
 
 class PilotStayAgent {
-  constructor() {
-    this.is_running = false;
-    this.current_task = null;
-    this.stats = { success: 0, failure: 0, last_run: null };
-  }
-
-  getSmoobuKey() {
-    const key = localStorage.getItem('smoobu_api_key');
-    return key ? key.trim() : null;
-  }
-
-  async analyzeBookingGaps() {
-    console.log("Agent: Analyse gestartet");
-    return [];
-  }
-
-  async logDecision(task, status, details) {
-    console.log(`Agent Log [${task}]: ${status}`);
-    try {
-      await db.from('agent_run_logs').insert([{
-        task_name: task,
-        status: status,
-        details: typeof details === 'object' ? JSON.stringify(details) : details,
-        automation_degree: 'regulär', 
-        timestamp: new Date().toISOString()
-      }]);
-    } catch (e) { console.error("Logging Error:", e); }
-  }
-
-  async updateRates(prop, newRates) {
-    try {
-      const key = this.getSmoobuKey();
-      if (!key) throw new Error("API Key fehlt");
-      const res = await fetch('https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy?action=update-rates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-smoobu-key': key,
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({
-          automation_degree: 'regulär',
-          property_id: prop.id,
-          rates: newRates
-        })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await this.logDecision('update-rates', 'success', { prop_id: prop.id });
-      return res;
-    } catch (err) {
-      await this.logDecision('update-rates', 'failure', err.message);
-      throw err;
+    constructor() {
+        this.is_running = false;
+        this.current_task = null;
+        this.stats = { success: 0, failure: 0, last_run: null };
     }
-  }
 
-  async runTask(task) {
-    if (this.is_running) return;
-    this.is_running = true;
-    this.current_task = task;
-    try {
-      if (task === 'update-rates') {
-        console.log("Running rate updates...");
-      }
-    } catch (e) {
-      console.error("Agent Error:", e);
-    } finally {
-      this.is_running = false;
+    getSmoobuKey() {
+        const key = localStorage.getItem('smoobu_api_key');
+        return key ? key.trim() : null;
     }
-  }
+
+    async analyzeBookingGaps() {
+        console.log("Agent: Analyse gestartet");
+        return [];
+    }
+
+    async logDecision(task, status, details) {
+        console.log(`Agent Log [${task}]: ${status}`);
+        try {
+            await db.from('agent_run_logs').insert([{
+                task_name: task,
+                status: status,
+                details: typeof details === 'object' ? JSON.stringify(details) : details,
+                automation_degree: 'regulär', 
+                timestamp: new Date().toISOString()
+            }]);
+        } catch (e) { console.error("Logging Error:", e); }
+    }
+
+    async updateRates(prop, newRates) {
+        try {
+            const key = this.getSmoobuKey();
+            if (!key) throw new Error("API Key fehlt");
+            const res = await fetch('https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy?action=update-rates', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-smoobu-key': key,
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                },
+                body: JSON.stringify({
+                    automation_degree: 'regulär',
+                    property_id: prop.id,
+                    rates: newRates
+                })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await this.logDecision('update-rates', 'success', { prop_id: prop.id });
+            return res;
+        } catch (err) {
+            await this.logDecision('update-rates', 'failure', err.message);
+            throw err;
+        }
+    }
+
+    async runTask(task) {
+        if (this.is_running) return;
+        this.is_running = true;
+        this.current_task = task;
+        try {
+            if (task === 'update-rates') {
+                console.log("Task 'update-rates' wird ausgeführt...");
+            }
+        } catch (e) {
+            console.error("Agent Error:", e);
+        } finally {
+            this.is_running = false;
+        }
+    }
 }
-  
   // =====================================================
   // MESSAGE HANDLING WITH MODE CHECKER & ESCALATION
   // =====================================================
