@@ -2708,37 +2708,26 @@ const EscalationManager = {
     chat.escalationReason = reason;
     chat.escalatedAt = new Date().toISOString();
     
-    // Alert erstellen
-    if (typeof pilotStayAgent !== 'undefined' && pilotStayAgent) {
-      pilotStayAgent.createAlert({
-        type: 'escalation',
-        title: `🚨 Eingriff nötig: ${chat.name}`,
-        message: `Grund: ${reason}`,
-        priority: 'high',
-        chatId: chatId
-      });
-    }
-    
-    // In DB speichern
-    if (user && db) {
+    // Alert erstellen (robust: falls createAlert nicht existiert)
+    const alertPayload = {
+      type: 'escalation',
+      title: `🚨 Eingriff nötig: ${chat.name}`,
+      message: `Grund: ${reason}`,
+      priority: 'high',
+      chatId: chatId
+    };
+
+    if (typeof pilotStayAgent !== 'undefined' && pilotStayAgent && typeof pilotStayAgent.createAlert === 'function') {
+      pilotStayAgent.createAlert(alertPayload);
+    } else {
+      // Fallback: lokal persistieren, damit UI nicht crasht
       try {
-        await db.from('hybrid_escalations').insert({
-          user_id: user.id,
-          escalation_type: 'message',
-          context_id: chatId,
-          guest_name: chat.name,
-          escalation_reason: reason,
-          sentiment_score: analysis.sentiment ? 
-            (analysis.sentiment.positive - analysis.sentiment.negative) / 5 : 0,
-          status: 'pending',
-          ai_summary: `Automatische Eskalation: ${reason}`,
-          created_at: new Date().toISOString()
-        });
-      } catch (e) {
-        console.log('Could not save escalation:', e.message);
-      }
+        const key = 'pilotstay_agent_alerts';
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        existing.unshift({ id: crypto?.randomUUID?.() || String(Date.now()), createdAt: new Date().toISOString(), resolved: false, ...alertPayload });
+        localStorage.setItem(key, JSON.stringify(existing.slice(0, 100)));
+      } catch (_) {}
     }
-    
     console.log(`🚨 Chat eskaliert: ${chat.name} - ${reason}`);
     renderPage();
   },
