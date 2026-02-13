@@ -16674,37 +16674,46 @@ function fmtDate(d) {
 let pilotStayAgent = null;
 
 class PilotStayAgent {
-  constructor() {
-    this.is_running = false;
-    this.current_task = null;
-    this.stats = { success: 0, failure: 0, last_run: null }; // Sichergestellt, dass es da ist
-  }
+    constructor() {
+        this.is_running = false;
+        this.current_task = null;
+        this.stats = { success: 0, failure: 0, last_run: null };
+    }
 
-  // --- AB HIER NEU EINFÜGEN ---
-  async analyzeBookingGaps() {
-    console.log("Agent: Analysiere Lücken...");
-    return []; 
-  }
+    // Hilfsmethode für den sauberen API-Key
+    getSmoobuKey() {
+        const key = localStorage.getItem('smoobu_api_key');
+        return key ? key.trim() : null;
+    }
 
-  async logDecision(task, status, details) {
-    console.log(`Agent Log [${task}]: ${status}`);
-    const logData = {
-      task_name: task,
-      status: status,
-      details: typeof details === 'object' ? JSON.stringify(details) : details,
-      automation_degree: 'regulär', // Fix: Kein 'auto'
-      timestamp: new Date().toISOString()
-    };
-    try {
-      await db.from('agent_run_logs').insert([logData]);
-    } catch (e) { console.error("Logging fehlgeschlagen:", e); }
-  }
+    // Fix: Verhindert "analyzeBookingGaps is not a function"
+    async analyzeBookingGaps() {
+        console.log("Agent: Starte Lücken-Analyse...");
+        try {
+            // Logik für Buchungslücken
+            return []; 
+        } catch (e) {
+            console.error("Analyse-Fehler", e);
+            return [];
+        }
+    }
 
-  getSmoobuKey() {
-    const key = localStorage.getItem('smoobu_api_key');
-    return key ? key.trim() : null;
-  }
-  // --- ENDE DER NEUEN METHODEN ---
+    // Fix: Verhindert "logDecision is not a function" & Fixiert "regulär"
+    async logDecision(task, status, details) {
+        console.log(`Agent Log [${task}]: ${status}`);
+        const logData = {
+            task_name: task,
+            status: status,
+            details: typeof details === 'object' ? JSON.stringify(details) : details,
+            automation_degree: 'regulär', // Streng nach deiner Vorgabe
+            timestamp: new Date().toISOString()
+        };
+        try {
+            await db.from('agent_run_logs').insert([logData]);
+        } catch (e) { 
+            console.warn("Datenbank-Logging fehlgeschlagen", e); 
+        }
+    }
 
   async runTask(task) { 
     // Dein alter Code geht hier unverändert weiter
