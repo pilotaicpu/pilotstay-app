@@ -3278,6 +3278,12 @@ const AuditLogger = {
         return;
       }
 
+      // If remote audit logging is disabled for this session (e.g., RLS/404/DB trigger issues), fall back to local.
+      if (this._remoteDisabled) {
+        this.storeLocally(params);
+        return false;
+      }
+
       // Always re-fetch user to avoid stale globals
       const { data: userData, error: userErr } = await db.auth.getUser();
       const currentUser = userData?.user;
@@ -3335,7 +3341,24 @@ const AuditLogger = {
       if (error) throw error;
       return true;
     } catch (e) {
-      console.error('AuditLogger failed:', e?.message || e);
+      const msg = String(e?.message || e || '');
+      // Common reasons:
+      // - PostgREST 404/403 when audit_log is not exposed or blocked by RLS
+      // - DB-side trigger calling digest() without pgcrypto enabled
+      const looksPermanent =
+        msg.includes('digest(') ||
+        msg.toLowerCase().includes('does not exist') ||
+        msg.includes('404') ||
+        msg.includes('Not Found') ||
+        msg.includes('403') ||
+        msg.includes('Forbidden');
+
+      if (looksPermanent) this._remoteDisabled = true;
+
+      if (!this._warned) {
+        console.warn('AuditLogger disabled (client-side). Falling back to local storage. Reason:', msg);
+        this._warned = true;
+      }
       this.storeLocally(params);
       return false;
     }
@@ -16667,7 +16690,15 @@ class PilotStayAgent {
     this.current_task = null;
     this.stats = { success: 0, failure: 0, last_run: null };
     this.decision_history = [];
+    // Alerts are an in-memory UI feature. We persist best-effort to localStorage for stability.
     this.alerts = [];
+    try {
+      const raw = localStorage.getItem('pilotstay_agent_alerts');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) this.alerts = parsed;
+      }
+    } catch (_) {}
   }
 
   
@@ -16698,12 +16729,45 @@ class PilotStayAgent {
   // UI helper: alerts list (placeholder; can be wired to notifications/escalations)
   async getAlerts() {
     try {
-      // If you later store alerts in DB, fetch them here.
-      return [];
+      return Array.isArray(this.alerts) ? this.alerts : [];
     } catch (e) {
-      console.error("getAlerts error:", e);
+      console.warn("getAlerts error:", e);
       return [];
     }
+  }
+
+  createAlert(alert) {
+    const a = alert && typeof alert === 'object' ? alert : { message: String(alert || 'Alert') };
+    const normalized = {
+      id: a.id || (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2)),
+      ts: a.ts || new Date().toISOString(),
+      severity: a.severity || 'warning',
+      title: a.title || 'Agent Alert',
+      message: a.message || '',
+      context: a.context || null,
+      resolved: !!a.resolved
+    };
+    try {
+      this.alerts = Array.isArray(this.alerts) ? this.alerts : [];
+      this.alerts.unshift(normalized);
+      // cap to avoid unbounded growth
+      this.alerts = this.alerts.slice(0, 200);
+      localStorage.setItem('pilotstay_agent_alerts', JSON.stringify(this.alerts));
+    } catch (_) {}
+    return normalized;
+  }
+
+  resolveAlert(alertId) {
+    try {
+      if (!Array.isArray(this.alerts)) return false;
+      const idx = this.alerts.findIndex(a => a?.id === alertId);
+      if (idx >= 0) {
+        this.alerts[idx].resolved = true;
+        localStorage.setItem('pilotstay_agent_alerts', JSON.stringify(this.alerts));
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
 getSmoobuKey() {
