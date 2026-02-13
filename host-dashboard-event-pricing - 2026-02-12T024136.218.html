@@ -16674,91 +16674,77 @@ function fmtDate(d) {
 let pilotStayAgent = null;
 
 class PilotStayAgent {
-  constructor(config) {
-    this.config = config;
-    this.db = config.db;
-    this.userId = config.userId;
-    this.isRunning = false;
-    this.taskQueue = [];
-    this.decisionLog = [];
-    this.shortTermMemory = [];
-    
-    // Check intervals (ms)
-    this.intervals = {
-      messages: 3 * 60 * 1000,      // 3 minutes
-      pricing: 4 * 60 * 60 * 1000,  // 4 hours
-      bookings: 30 * 60 * 1000,     // 30 minutes
-      opportunities: 6 * 60 * 60 * 1000 // 6 hours
-    };
-    
-    this.timers = [];
-    console.log('🤖 PilotStay Autonomous Agent initialized');
+  constructor() {
+    this.is_running = false;
+    this.current_task = null;
+    this.stats = { success: 0, failure: 0, last_run: null };
   }
-  
-  // Start autonomous operation
-  start() {
-    if (this.isRunning) return;
-    this.isRunning = true;
-    
-    console.log('🚀 Agent starting autonomous monitoring...');
-    this.updateAgentStatus('running');
-    
-    // Initial checks
-    setTimeout(() => this.runTask('checkMessages'), 5000);
-    setTimeout(() => this.runTask('analyzeBookingGaps'), 10000);
-    
-    // Set up recurring checks
-    this.timers.push(setInterval(() => this.runTask('checkMessages'), this.intervals.messages));
-    this.timers.push(setInterval(() => this.runTask('analyzePricing'), this.intervals.pricing));
-    this.timers.push(setInterval(() => this.runTask('analyzeBookingGaps'), this.intervals.bookings));
-    this.timers.push(setInterval(() => this.runTask('detectOpportunities'), this.intervals.opportunities));
+
+  getSmoobuKey() {
+    const key = localStorage.getItem('smoobu_api_key');
+    return key ? key.trim() : null;
   }
-  
-  // Stop agent
-  stop() {
-    this.isRunning = false;
-    this.timers.forEach(t => clearInterval(t));
-    this.timers = [];
-    this.updateAgentStatus('stopped');
-    console.log('🛑 Agent stopped');
+
+  async analyzeBookingGaps() {
+    console.log("Agent: Analyse gestartet");
+    return [];
   }
-  
-  // Update agent status in UI
-  updateAgentStatus(status) {
-    const statusEl = document.getElementById('agent-status');
-    if (statusEl) {
-      statusEl.innerHTML = status === 'running' 
-        ? '<span style="color:#22c55e">● Agent aktiv</span>'
-        : '<span style="color:#71717a">○ Agent inaktiv</span>';
-    }
-  }
-  
-  // Run a specific task
-  async runTask(taskType) {
-    if (!this.isRunning) return;
-    
-    console.log(`🤖 Agent running: ${taskType}`);
-    
+
+  async logDecision(task, status, details) {
+    console.log(`Agent Log [${task}]: ${status}`);
     try {
-      switch (taskType) {
-        case 'checkMessages':
-          await this.checkAndHandleMessages();
-          break;
-        case 'analyzePricing':
-          await this.analyzePricingOpportunities();
-          break;
-        case 'analyzeBookingGaps':
-          await this.analyzeBookingGaps();
-          break;
-        case 'detectOpportunities':
-          await this.detectOpportunities();
-          break;
-      }
-    } catch (error) {
-      console.error(`Agent task ${taskType} failed:`, error);
-      this.logDecision('error', { task: taskType, error: error.message });
+      await db.from('agent_run_logs').insert([{
+        task_name: task,
+        status: status,
+        details: typeof details === 'object' ? JSON.stringify(details) : details,
+        automation_degree: 'regulär', 
+        timestamp: new Date().toISOString()
+      }]);
+    } catch (e) { console.error("Logging Error:", e); }
+  }
+
+  async updateRates(prop, newRates) {
+    try {
+      const key = this.getSmoobuKey();
+      if (!key) throw new Error("API Key fehlt");
+      const res = await fetch('https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy?action=update-rates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-smoobu-key': key,
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          automation_degree: 'regulär',
+          property_id: prop.id,
+          rates: newRates
+        })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await this.logDecision('update-rates', 'success', { prop_id: prop.id });
+      return res;
+    } catch (err) {
+      await this.logDecision('update-rates', 'failure', err.message);
+      throw err;
     }
   }
+
+  async runTask(task) {
+    if (this.is_running) return;
+    this.is_running = true;
+    this.current_task = task;
+    try {
+      if (task === 'update-rates') {
+        console.log("Running rate updates...");
+      }
+    } catch (e) {
+      console.error("Agent Error:", e);
+    } finally {
+      this.is_running = false;
+    }
+  }
+}
   
   // =====================================================
   // MESSAGE HANDLING WITH MODE CHECKER & ESCALATION
