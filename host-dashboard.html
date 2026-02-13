@@ -16674,130 +16674,180 @@ function fmtDate(d) {
 let pilotStayAgent = null;
 
 class PilotStayAgent {
-    constructor() {
-        this.is_running = false;
-        this.current_task = null;
-        this.stats = { success: 0, failure: 0, last_run: null };
-    }
+  constructor() {
+    this.is_running = false;
+    this.current_task = null;
+    this.stats = { success: 0, failure: 0, last_run: null };
+  }
 
-    getSmoobuKey() {
-        const key = localStorage.getItem('smoobu_api_key');
-        return key ? key.trim() : null;
-    }
+  getSmoobuKey() {
+    const key = localStorage.getItem("smoobu_api_key");
+    return key ? key.trim() : null;
+  }
 
-    async analyzeBookingGaps() {
-        console.log("Agent: Analyse gestartet");
-        return [];
-    }
+  async analyzeBookingGaps() {
+    console.log("Agent: Analyse gestartet");
+    return [];
+  }
 
-    async logDecision(task, status, details) {
-        console.log(`Agent Log [${task}]: ${status}`);
-        try {
-            await db.from('agent_run_logs').insert([{
-                task_name: task,
-                status: status,
-                details: typeof details === 'object' ? JSON.stringify(details) : details,
-                automation_degree: 'regulär', 
-                timestamp: new Date().toISOString()
-            }]);
-        } catch (e) { console.error("Logging Error:", e); }
+  async logDecision(task, status, details) {
+    console.log(`Agent Log [${task}]: ${status}`);
+    try {
+      await db.from("agent_run_logs").insert([
+        {
+          task_name: task,
+          status: status,
+          details: typeof details === "object" ? JSON.stringify(details) : details,
+          automation_degree: "regulär",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    } catch (e) {
+      console.error("Logging Error:", e);
     }
+  }
 
-    async updateRates(prop, newRates) {
-        try {
-            const key = this.getSmoobuKey();
-            if (!key) throw new Error("API Key fehlt");
-            const res = await fetch('https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy?action=update-rates', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-smoobu-key': key,
-                    'apikey': SUPABASE_ANON_KEY,
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-                },
-                body: JSON.stringify({
-                    automation_degree: 'regulär',
-                    property_id: prop.id,
-                    rates: newRates
-                })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            await this.logDecision('update-rates', 'success', { prop_id: prop.id });
-            return res;
-        } catch (err) {
-            await this.logDecision('update-rates', 'failure', err.message);
-            throw err;
+  async updateRates(prop, newRates) {
+    try {
+      const key = this.getSmoobuKey();
+      if (!key) throw new Error("API Key fehlt");
+
+      const res = await fetch(
+        "https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy?action=update-rates",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-smoobu-key": key,
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            automation_degree: "regulär",
+            property_id: prop?.id,
+            rates: newRates,
+          }),
         }
-    }
+      );
 
-    async runTask(task) {
-        if (this.is_running) return;
-        this.is_running = true;
-        this.current_task = task;
-        try {
-            if (task === 'update-rates') {
-                console.log("Task 'update-rates' wird ausgeführt...");
-            }
-        } catch (e) {
-            console.error("Agent Error:", e);
-        } finally {
-            this.is_running = false;
-        }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      await this.logDecision("update-rates", "success", { prop_id: prop?.id });
+      return res;
+    } catch (err) {
+      await this.logDecision("update-rates", "failure", err?.message ?? String(err));
+      throw err;
     }
-}
+  }
+
+  async runTask(task) {
+    if (this.is_running) return;
+
+    this.is_running = true;
+    this.current_task = task;
+
+    try {
+      if (task === "update-rates") {
+        console.log("Task 'update-rates' wird ausgeführt...");
+        // hier würdest du normalerweise updateRates(...) oder deine Queue/Logik triggern
+      }
+    } catch (e) {
+      console.error("Agent Error:", e);
+    } finally {
+      this.is_running = false;
+      this.current_task = null;
+      this.stats.last_run = new Date().toISOString();
+    }
+  }
+
   // =====================================================
   // MESSAGE HANDLING WITH MODE CHECKER & ESCALATION
   // =====================================================
   async checkAndHandleMessages() {
     // ERST: Mode-Check via ModeChecker
-    const modeCheck = await ModeChecker.canExecuteAction('smartReplies', 'auto_triggered');
-    
+    const modeCheck = await ModeChecker.canExecuteAction(
+      "smartReplies",
+      "auto_triggered"
+    );
+
     if (!modeCheck.allowed && !modeCheck.requiresApproval) {
       console.log(`📬 Smart Replies: ${modeCheck.reason}`);
       return;
     }
-    
-    // Get unread chats
-    const unreadChats = chats.filter(c => c.unread > 0);
-    
-    if (unreadChats.length === 0) {
-      console.log('📬 No unread messages');
+
+    // Get unread chats (defensiv: falls chats nicht existiert/kein Array ist)
+    if (!Array.isArray(chats)) {
+      console.warn("📬 chats ist nicht definiert oder kein Array");
       return;
     }
-    
-    console.log(`📬 Processing ${unreadChats.length} chats with unread messages (Mode: ${modeCheck.mode})`);
-    
+
+    const unreadChats = chats.filter((c) => (c?.unread ?? 0) > 0);
+
+    if (unreadChats.length === 0) {
+      console.log("📬 No unread messages");
+      return;
+    }
+
+    console.log(
+      `📬 Processing ${unreadChats.length} chats with unread messages (Mode: ${modeCheck.mode})`
+    );
+
     for (const chat of unreadChats) {
       // Skip already escalated chats
       if (EscalationManager.escalatedChats.has(chat.id)) {
         console.log(`⏭️ Skipping escalated chat: ${chat.name}`);
         continue;
       }
-      
-      // Get the latest unread message
-      const lastMessage = chat.messages[chat.messages.length - 1];
-      if (!lastMessage || lastMessage.from === 'me') continue;
-      
+
+      // Get the latest message (bei "unread" müsstest du ggf. eigentlich das letzte unread selektieren)
+      const lastMessage = chat?.messages?.[chat.messages.length - 1];
+      if (!lastMessage || lastMessage.from === "me") continue;
+
       // Analyze the message
       const analysis = this.analyzeMessage(lastMessage.text);
-      
+
       // ESCALATION CHECK (auch bei Auto-Modus!)
       const escalationCheck = EscalationManager.shouldEscalate(chat.id, analysis);
-      
+
       if (escalationCheck.shouldEscalate) {
-        console.log(`🚨 Auto-Eskalation: ${chat.name} - ${escalationCheck.reason}`);
-        
+        console.log(
+          `🚨 Auto-Eskalation: ${chat.name} - ${escalationCheck.reason}`
+        );
+
         // Auch bei Auto-Modus: Eskalieren wenn nötig
-        await EscalationManager.escalateChat(chat.id, escalationCheck.reason, analysis);
-        
+        await EscalationManager.escalateChat(
+          chat.id,
+          escalationCheck.reason,
+          analysis
+        );
+
         // Sende Holding-Message
-        const holdingMsg = automationSettings.aiLanguage === 'en'
-          ? "Thank you for your message. I'm forwarding this to our team for personal assistance. You'll hear from us shortly."
-          : "Vielen Dank für Ihre Nachricht! Ich leite dies an unser Team weiter, damit Sie persönlich betreut werden. Sie hören in Kürze von uns.";
-        
+        const lang = automationSettings?.aiLanguage ?? "de";
+        const holdingMsg =
+          lang === "en"
+            ? "Thank you for your message. I'm forwarding this to our team for personal assistance. You'll hear from us shortly."
+            : "Vielen Dank für Ihre Nachricht! Ich leite dies an unser Team weiter, damit Sie persönlich betreut werden. Sie hören in Kürze von uns.";
+
         await this.sendReply(chat, holdingMsg, true);
         continue; // Nächster Chat
       }
+
+      // Optional: Wenn keine Eskalation, könntest du hier Auto-Reply Logik machen
+      // z.B. await this.sendReply(chat, generatedReply, false);
+    }
+  }
+
+  // Platzhalter: müssen bei dir existieren
+  analyzeMessage(text) {
+    // deine echte Analyse-Logik
+    return { text };
+  }
+
+  async sendReply(chat, msg, isHolding = false) {
+    // deine echte Send-Logik
+    console.log("📨 Reply:", { chatId: chat?.id, msg, isHolding });
+  }
+}
       
       // Decide action based on mode
       const decision = await this.decideActionWithModeCheck(chat, lastMessage, analysis, modeCheck);
