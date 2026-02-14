@@ -7005,6 +7005,80 @@ async function sendSmartReply(idx) {
 }
 
 // Send message
+
+// ================================
+// Sent-message de-duplication (prevents feedback loops)
+// ================================
+const __SENT_MSG_CACHE_KEY = 'pilotstay_sent_messages_v1';
+
+function __normalizeMsgText(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function __hash32(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) >>> 0; // h*31 + c
+  }
+  return h.toString(16);
+}
+
+function __loadSentCache() {
+  try {
+    const raw = localStorage.getItem(__SENT_MSG_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function __saveSentCache(cache) {
+  try { localStorage.setItem(__SENT_MSG_CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+}
+
+function rememberSentMessage(bookingId, messageText) {
+  if (!bookingId) return;
+  const txt = __normalizeMsgText(messageText);
+  if (!txt) return;
+
+  const cache = __loadSentCache();
+  const arr = Array.isArray(cache[bookingId]) ? cache[bookingId] : [];
+  const entry = { h: __hash32(txt), t: Date.now() };
+
+  // keep recent unique entries, newest first
+  const next = [entry, ...arr.filter(e => e && e.h !== entry.h)].slice(0, 25);
+
+  cache[bookingId] = next;
+  __saveSentCache(cache);
+}
+
+function isLikelyOwnMessage(bookingId, msg) {
+  try {
+    if (!bookingId || !msg) return false;
+
+    const txt = __normalizeMsgText(msg.message || msg.htmlMessage || '');
+    if (!txt) return false;
+
+    const h = __hash32(txt);
+    const cache = __loadSentCache();
+    const arr = Array.isArray(cache[bookingId]) ? cache[bookingId] : [];
+
+    const now = Date.now();
+    const TTL = 1000 * 60 * 60 * 48; // 48h
+    return arr.some(e => e && e.h === h && (now - e.t) < TTL);
+  } catch (_) {
+    return false;
+  }
+}
+
 async function sendMessage() {
   const input = document.getElementById('msg-input');
   if (!input) {
@@ -7091,6 +7165,8 @@ async function sendMessage() {
       if (response.ok) {
         newMsg.pending = false;
         newMsg.sent = true;
+        // Prevent feedback-loop: remember what we just sent so polling won't treat it as a new guest message
+        rememberSentMessage(String(bookingId), messageBody);
         console.log('✅ Message sent successfully!');
         showToast('✅ Nachricht gesendet');
       } else {
