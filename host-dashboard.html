@@ -2350,6 +2350,7 @@ async function smoobuFetch(action, options = {}) {
     method: options.method || 'GET',
     headers: {
       'x-smoobu-key': apiKey,
+      'x-action': action,
       'Content-Type': 'application/json',
       ...options.headers
     }
