@@ -7146,6 +7146,19 @@ async function sendMessage() {
     try {
       const url = `${SMOOBU_PROXY_URL}?action=send-message`;
       const payload = { bookingId: chat.smoobuId, messageBody: text };
+
+      // Remember what we just sent so polling won't misclassify it as a new guest message
+      try {
+        const bookingKey = (chat.smoobuId ?? chat.bookingId ?? chat.id ?? "").toString();
+        window.__sentMessageCache = window.__sentMessageCache || {};
+        window.__sentMessageCache[bookingKey] = window.__sentMessageCache[bookingKey] || [];
+        const plain = (text || "").toString().replace(/\s+/g, " ").trim();
+        const hashText = (s) => { let h = 5381; for (let i=0;i<s.length;i++) h=((h<<5)+h)+s.charCodeAt(i); return (h>>>0).toString(16); };
+        window.__sentMessageCache[bookingKey].push({ hash: hashText(plain.slice(0, 200)), at: Date.now() });
+        // Keep cache small
+        window.__sentMessageCache[bookingKey] = window.__sentMessageCache[bookingKey].slice(-50);
+      } catch (_) {}
+
       
       console.log('   URL:', url);
       console.log('   Payload:', JSON.stringify(payload));
@@ -13666,30 +13679,68 @@ async function pollForNewMessages() {
                  sentByVal === 'guest';
         };
         
-        // Use message ID as string for comparison (handles both numeric and string IDs)
-        const newGuestMessages = messages.filter(m => {
-          const msgId = String(m.id || '');
-          const isNew = !lastKnown || msgId > lastKnown;
-          const isFromGuest = isGuestMessage(m);
-          
-          // Always log for debugging
-          console.log(`   📧 Message ID=${msgId}, type=${m.type}, from=${m.from || 'undefined'} → ${isFromGuest ? 'GUEST' : 'HOST'}, isNew=${isNew}`);
-          
-          if (isNew && isFromGuest) {
-            console.log(`   🆕 New GUEST message detected!`);
-          } else if (isNew && !isFromGuest) {
-            console.log(`   ⏭️ Skipping HOST message (our own reply)`);
-          }
-          
-          return isNew && isFromGuest;
-        });
-        
-        // Update last known message (use max ID as string)
-        const allIds = messages.map(m => String(m.id || '0'));
-        const maxId = allIds.sort().pop() || '0';
-        lastKnownMessages[booking.smoobu_id] = maxId;
-        
-        // Process new messages
+        // Robust numeric message-id tracking (avoid lexicographic bugs)
+          const bookingKey = (booking.bookingId ?? booking.smoobu_id ?? booking.id ?? booking.smoobuId ?? "").toString();
+          const lastKnownRaw = (lastKnownMessages[bookingKey] ?? "0").toString();
+          const lastKnownNum = Number(lastKnownRaw);
+          const lastKnownSafe = Number.isFinite(lastKnownNum) ? lastKnownNum : 0;
+
+          // Helper: get a stable plain-text version of a Smoobu message
+          const toPlainText = (msg) => {
+            const raw = (msg?.message ?? msg?.htmlMessage ?? "").toString();
+            // If HTML, strip tags (best-effort) and collapse whitespace
+            const stripped = raw.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+            return stripped;
+          };
+
+          // Helper: very small hash to match our own recently sent texts (prevents feedback loop)
+          const hashText = (s) => {
+            let h = 5381;
+            for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
+            return (h >>> 0).toString(16);
+          };
+
+          const wasSentByHost = (msg) => {
+            const cache = (window.__sentMessageCache?.[bookingKey] ?? []);
+            if (!cache.length) return false;
+
+            const plain = toPlainText(msg);
+            if (!plain) return false;
+
+            const msgHash = hashText(plain.slice(0, 200)); // cap to keep stable
+            const createdAt = Date.parse(msg?.createdAt ?? msg?.created_at ?? "") || 0;
+
+            // Consider host-sent if hash matches a recent outbox entry (10 min)
+            const TEN_MIN = 10 * 60 * 1000;
+            return cache.some(e => e?.hash === msgHash && (createdAt === 0 || Math.abs(createdAt - (e.at ?? 0)) < TEN_MIN));
+          };
+
+          // Determine which messages are new *and* from guest
+          const newGuestMessages = messages.filter(msg => {
+            const msgIdStr = (msg.id ?? msg.messageId ?? msg.message_id ?? "").toString();
+            const msgNum = Number(msgIdStr);
+            const isNew = Number.isFinite(msgNum) ? (msgNum > lastKnownSafe) : (msgIdStr && msgIdStr > lastKnownRaw);
+
+            // Treat our own replies as HOST even if Smoobu marks type=2 (prevents auto-reply loops)
+            const isGuest = isGuestMessage(msg) && !wasSentByHost(msg);
+
+            if (isNew && isGuest) {
+              console.log(`   🆕 New GUEST message detected!`);
+            }
+            return isNew && isGuest;
+          });
+
+          // Update lastKnownMessages to the highest numeric ID we've seen (guest OR host)
+          const allNums = messages
+            .map(m => Number((m.id ?? m.messageId ?? m.message_id ?? "").toString()))
+            .filter(n => Number.isFinite(n));
+
+          const maxSeen = allNums.length ? Math.max(...allNums) : lastKnownSafe;
+          lastKnownMessages[bookingKey] = String(maxSeen);
+
+          try { localStorage.setItem('pilotstay_lastKnownMessages', JSON.stringify(lastKnownMessages)); } catch (_) {}
+
+          // Process new messages
         for (const msg of newGuestMessages) {
           newMessagesFound++;
           console.log(`📨 New message from ${booking.guest_name}: "${(msg.message || msg.text || '').substring(0, 50)}..."`);
