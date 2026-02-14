@@ -1,223 +1,448 @@
-// ===============================
-// Smoobu Proxy Edge Function (FULL)
-// v4 - FIX: send-message-to-guest payload validation (messageBody empty)
-//     - accepts {message}, {messageBody}, {text}, {content}
-//     - trims + strips empty HTML-only bodies
-//     - optional subject
-//     - keeps CORS allowing x-smoobu-key
-// ===============================
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const SMOOBU_BASE_URL = "https://login.smoobu.com/api";
+const SMOOBU_BASE_URL = "https://login.smoobu.com/api"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-smoobu-key",
-  "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-};
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-smoobu-key",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+}
+
+
 
 async function readJsonOrText(response: Response) {
-  const t = await response.text();
-  if (!t) return null;
+  const t = await response.text()
+  if (!t) return null
   try {
-    return JSON.parse(t);
+    return JSON.parse(t)
   } catch {
-    return { raw: t };
+    return { raw: t }
   }
 }
 
-function stripHtmlToText(input: string): string {
-  // Very small sanitizer: remove tags + decode basic entities we commonly see
-  return input
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function coerceMessageBody(body: any): string {
-  const candidates = [
-    body?.messageBody,
-    body?.message,
-    body?.text,
-    body?.content,
-    body?.reply,
-    body?.ai_suggestion,
-    body?.aiSuggestion,
-  ].filter((v) => typeof v === "string");
-
-  const raw = (candidates[0] ?? "").toString();
-  const trimmed = raw.trim();
-
-  if (!trimmed) return "";
-
-  // If it's HTML-ish, strip to text to avoid "empty" after tags
-  const looksHtml = /<\w+|&nbsp;|<br\s*\/?>/i.test(trimmed);
-  const normalized = looksHtml ? stripHtmlToText(trimmed) : trimmed;
-
-  return normalized.trim();
-}
-
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders })
   }
 
   try {
-    const url = new URL(req.url);
-    const action = url.searchParams.get("action");
-    const verifyQuery = url.searchParams.get("verify");
+    const url = new URL(req.url)
+    const action = url.searchParams.get("action")
 
-    const SMOOBU_API_KEY = req.headers.get("x-smoobu-key");
-    if (!SMOOBU_API_KEY) {
-      return new Response(JSON.stringify({ error: "Missing Smoobu API Key" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    console.log("[Smoobu Proxy] Action:", action)
+
+    // =====================================================
+    // TICKETMASTER - Delegiert an data-integration Function
+    // Diese Funktion hat besseres City-Mapping und Caching
+    // =====================================================
+    if (action === "ticketmaster") {
+      const city = url.searchParams.get("city") || ""
+      const countryCode = url.searchParams.get("countryCode") || "DE"
+      const startDate = url.searchParams.get("startDate") || ""
+      const endDate = url.searchParams.get("endDate") || ""
+      const size = url.searchParams.get("size") || "50"
+
+      // Delegate to data-integration function for better city mapping & caching
+      const dataIntegrationUrl = Deno.env.get("SUPABASE_URL")
+      if (dataIntegrationUrl) {
+        try {
+          const delegateUrl = `${dataIntegrationUrl}/functions/v1/data-integration?action=events&city=${encodeURIComponent(city)}&countryCode=${countryCode}&startDate=${startDate}&endDate=${endDate}&size=${size}`
+          const response = await fetch(delegateUrl, {
+            headers: { "Authorization": `Bearer ${Deno.env.get("SUPABASE_ANON_KEY") || ""}` }
+          })
+          
+          if (response.ok) {
+            const data = await response.json()
+            // Return in the same format as before for backward compatibility
+            return new Response(
+              JSON.stringify({ 
+                events: data.events || [],
+                source: data.source,
+                city: data.city
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            )
+          }
+        } catch (e) {
+          console.warn("[Smoobu Proxy] data-integration delegation failed, using fallback:", e)
+        }
+      }
+
+      // Fallback: Direct Ticketmaster call (if data-integration unavailable)
+      const tmApiKey = Deno.env.get("TICKETMASTER_API_KEY")
+      if (!tmApiKey) {
+        return new Response(
+          JSON.stringify({ events: [], source: "none" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      const tmUrl = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${tmApiKey}&city=${encodeURIComponent(city)}&countryCode=${countryCode}&startDateTime=${startDate}T00:00:00Z&endDateTime=${endDate}T23:59:59Z&size=${size}&sort=date,asc`
+      const tmResponse = await fetch(tmUrl)
+      const tmData = await tmResponse.json()
+
+      return new Response(
+        JSON.stringify({ events: tmData._embedded?.events || [], source: "ticketmaster-fallback" }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
+    }
+
+    // API KEY VALIDATION for Smoobu actions
+    const apiKey = req.headers.get("x-smoobu-key")
+    if (!apiKey || apiKey.length < 10) {
+      return new Response(
+        JSON.stringify({ error: "API key required in x-smoobu-key header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
     }
 
     const smoobuHeaders = {
-      "Content-Type": "application/json",
-      "Api-Key": SMOOBU_API_KEY,
-    };
+      "Api-Key": apiKey,
+      "Content-Type": "application/json"
+    }
 
-    // ===============================
+    // ACTION: me
+    if (action === "me") {
+      const response = await fetch(`${SMOOBU_BASE_URL}/me`, { headers: smoobuHeaders })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // ACTION: apartments
+    if (action === "apartments") {
+      const response = await fetch(`${SMOOBU_BASE_URL}/apartments`, { headers: smoobuHeaders })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // ACTION: apartment (single)
+    if (action === "apartment") {
+      const id = url.searchParams.get("id")
+      const response = await fetch(`${SMOOBU_BASE_URL}/apartments/${id}`, { headers: smoobuHeaders })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // ACTION: bookings
+    if (action === "bookings") {
+      const from = url.searchParams.get("from")
+      const to = url.searchParams.get("to")
+      const apartmentId = url.searchParams.get("apartmentId")
+      let bookingsUrl = `${SMOOBU_BASE_URL}/reservations`
+      const params = new URLSearchParams()
+      if (from) params.append("from", from)
+      if (to) params.append("to", to)
+      if (apartmentId) params.append("apartmentId", apartmentId)
+      if (params.toString()) bookingsUrl += `?${params.toString()}`
+      const response = await fetch(bookingsUrl, { headers: smoobuHeaders })
+      const data = await response.json()
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // =====================================================
+    // ACTION: rates - GET PRICES
+    // OFFICIAL SMOOBU API: GET /api/rates?apartments[]=ID&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD
+    // =====================================================
+    if (action === "rates") {
+      let apartmentIds: number[] = []
+      let startDate = ""
+      let endDate = ""
+
+      // Accept parameters from POST body (from frontend)
+      if (req.method === "POST") {
+        try {
+          const body = await req.json()
+          console.log("[Smoobu Proxy] rates - received body:", JSON.stringify(body))
+          
+          if (body.apartments && Array.isArray(body.apartments)) {
+            apartmentIds = body.apartments.map((id: any) => Number(id)).filter((id: number) => id > 0 && !isNaN(id))
+          }
+          // Accept both camelCase and snake_case
+          startDate = body.start_date || body.startDate || ""
+          endDate = body.end_date || body.endDate || ""
+        } catch (e) {
+          console.error("[Smoobu Proxy] Body parse error:", e)
+        }
+      }
+
+      // Fallback to URL params
+      if (apartmentIds.length === 0) {
+        const ap = url.searchParams.get("apartments")
+        if (ap) apartmentIds = ap.split(",").map(id => Number(id)).filter(id => id > 0 && !isNaN(id))
+      }
+      if (!startDate) startDate = url.searchParams.get("start_date") || ""
+      if (!endDate) endDate = url.searchParams.get("end_date") || ""
+
+      console.log("[Smoobu Proxy] rates - apartments:", apartmentIds, "start:", startDate, "end:", endDate)
+
+      if (apartmentIds.length === 0 || !startDate || !endDate) {
+        return new Response(
+          JSON.stringify({ error: "apartments, start_date, end_date required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // BUILD GET URL - Smoobu requires apartments[]=ID format
+      const apartmentsParams = apartmentIds.map(id => `apartments[]=${id}`).join("&")
+      const ratesUrl = `${SMOOBU_BASE_URL}/rates?${apartmentsParams}&start_date=${startDate}&end_date=${endDate}`
+      
+      console.log("[Smoobu Proxy] GET URL:", ratesUrl)
+
+      // SEND GET REQUEST TO SMOOBU
+      const response = await fetch(ratesUrl, {
+        method: "GET",
+        headers: {
+          "Api-Key": apiKey,
+          "Cache-Control": "no-cache"
+        }
+      })
+
+      // CRITICAL: Get text first, then try to parse as JSON
+      const responseText = await response.text()
+      console.log("[Smoobu Proxy] rates response status:", response.status, "length:", responseText.length)
+      
+      // Check if response is HTML (error page) instead of JSON
+      if (responseText.trim().startsWith("<")) {
+        console.error("[Smoobu Proxy] Received HTML instead of JSON:", responseText.substring(0, 200))
+        return new Response(
+          JSON.stringify({ 
+            error: "Smoobu returned HTML error page", 
+            status: response.status,
+            hint: "Check API key and apartment IDs"
+          }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+      
+      // Try to parse as JSON
+      let data: any
+      try {
+        data = JSON.parse(responseText)
+      } catch (e) {
+        console.error("[Smoobu Proxy] JSON parse error:", e, "Response:", responseText.substring(0, 200))
+        return new Response(
+          JSON.stringify({ error: "Invalid JSON from Smoobu", raw: responseText.substring(0, 500) }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
+    // =====================================================
+    // ACTION: update-rates - POST PRICES TO SMOOBU
+    // OFFICIAL API: POST /api/rates with JSON body
+    // =====================================================
+    if (action === "update-rates") {
+      let body: any
+      try {
+        body = await req.json()
+      } catch (e) {
+        console.error("[Smoobu Proxy] update-rates: Failed to parse JSON body")
+        return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+      }
+
+      console.log("[Smoobu Proxy] update-rates - RECEIVED body:", JSON.stringify(body))
+
+      if (!body.apartments || !body.operations) {
+        console.error("[Smoobu Proxy] update-rates: Missing apartments or operations")
+        return new Response(JSON.stringify({ error: "apartments and operations required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+      }
+
+      // Validate and convert apartment IDs
+      const numericApartments = Array.isArray(body.apartments)
+        ? body.apartments.map((id: any) => Number(id)).filter((id: number) => id > 0 && !isNaN(id))
+        : [Number(body.apartments)].filter((id: number) => id > 0 && !isNaN(id))
+
+      console.log("[Smoobu Proxy] update-rates - Original apartments:", body.apartments)
+      console.log("[Smoobu Proxy] update-rates - Numeric apartments:", numericApartments)
+
+      if (numericApartments.length === 0) {
+        console.error("[Smoobu Proxy] update-rates: No valid apartment IDs after parsing!")
+        console.error("[Smoobu Proxy] Original input was:", JSON.stringify(body.apartments))
+        return new Response(
+          JSON.stringify({ 
+            error: "No valid apartment IDs", 
+            received: body.apartments,
+            hint: "Apartment IDs must be positive integers (Smoobu IDs, not UUIDs)"
+          }), 
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      const smoobuBody = {
+        apartments: numericApartments,
+        operations: body.operations
+      }
+
+      console.log("[Smoobu Proxy] update-rates - SENDING to Smoobu /rates:")
+      console.log(JSON.stringify(smoobuBody, null, 2))
+
+      const response = await fetch(`${SMOOBU_BASE_URL}/rates`, {
+        method: "POST",
+        headers: smoobuHeaders,
+        body: JSON.stringify(smoobuBody)
+      })
+
+      // Get response text first to handle potential HTML errors
+      const responseText = await response.text()
+      console.log("[Smoobu Proxy] update-rates - Response status:", response.status)
+      
+      // Check for HTML error response
+      if (responseText.trim().startsWith("<")) {
+        console.error("[Smoobu Proxy] update-rates - Received HTML instead of JSON!")
+        console.error("[Smoobu Proxy] Response (first 300 chars):", responseText.substring(0, 300))
+        return new Response(
+          JSON.stringify({ 
+            error: "Smoobu returned HTML error page", 
+            status: response.status,
+            sentApartments: numericApartments,
+            hint: "Check if apartment ID belongs to your Smoobu account"
+          }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // Parse JSON response
+      let data: any
+      try {
+        data = JSON.parse(responseText)
+      } catch (e) {
+        console.error("[Smoobu Proxy] update-rates - Failed to parse response as JSON")
+        console.error("[Smoobu Proxy] Response text:", responseText.substring(0, 500))
+        return new Response(
+          JSON.stringify({ error: "Invalid JSON response from Smoobu", raw: responseText.substring(0, 200) }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // Handle 422 error with detailed logging
+      if (response.status === 422) {
+        console.error("[Smoobu Proxy] ========================================")
+        console.error("[Smoobu Proxy] 422 ERROR - APARTMENT NOT FOUND")
+        console.error("[Smoobu Proxy] ========================================")
+        console.error("[Smoobu Proxy] Sent apartment IDs:", numericApartments)
+        console.error("[Smoobu Proxy] Operations:", JSON.stringify(body.operations))
+        console.error("[Smoobu Proxy] Smoobu response:", JSON.stringify(data))
+        console.error("[Smoobu Proxy] ========================================")
+        console.error("[Smoobu Proxy] DIAGNOSIS: The apartment ID does not belong to this API key's account")
+        console.error("[Smoobu Proxy] ========================================")
+        
+        return new Response(
+          JSON.stringify({ 
+            error: "Smoobu rejected apartment ID",
+            status: 422,
+            detail: data.detail || data.message || "Apartment not found for this user",
+            sentApartmentIds: numericApartments,
+            diagnosis: "The apartment ID does not exist in your Smoobu account or belongs to a different API key"
+          }),
+          { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      console.log("[Smoobu Proxy] update-rates - SUCCESS:", JSON.stringify(data))
+      return new Response(JSON.stringify(data), { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } })
+    }
+
     // ACTION: messages
-    // ===============================
     if (action === "messages") {
-      const bookingId = url.searchParams.get("bookingId");
+      const bookingId = url.searchParams.get("bookingId")
       if (!bookingId) {
         return new Response(JSON.stringify({ error: "bookingId required" }), {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        })
       }
 
-      const response = await fetch(
-        `${SMOOBU_BASE_URL}/reservations/${bookingId}/messages`,
-        { headers: smoobuHeaders }
-      );
+      const response = await fetch(`${SMOOBU_BASE_URL}/reservations/${bookingId}/messages`, {
+        headers: smoobuHeaders
+      })
 
-      const data = await readJsonOrText(response);
+      const data = await readJsonOrText(response)
       return new Response(JSON.stringify(data), {
         status: response.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      })
     }
 
-    // ===============================
-    // ACTION: send-message  (send to guest)
-    // Endpoint: POST /reservations/{id}/messages/send-message-to-guest
-    // Body: { messageBody: string, subject?: string }
-    // ===============================
+    // ACTION: send-message (robust + optional verify)
     if (action === "send-message") {
-      const body = await req.json();
-      const bookingId = body?.bookingId ?? body?.reservationId ?? body?.id;
-      const verify = body?.verify || verifyQuery === "1";
+      const body = await req.json()
+      const bookingId = body.bookingId
+      const message = body.message
+      const verify = body.verify === true || url.searchParams.get("verify") === "1"
 
-      const messageBody = coerceMessageBody(body);
-      const subject =
-        typeof body?.subject === "string" ? body.subject.trim() : undefined;
-
-      if (!bookingId || typeof bookingId !== "string" && typeof bookingId !== "number") {
-        return new Response(JSON.stringify({ error: "bookingId required" }), {
+      if (!bookingId || !message) {
+        return new Response(JSON.stringify({ error: "bookingId and message required" }), {
           status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        })
       }
 
-      if (!messageBody) {
-        return new Response(
-          JSON.stringify({
-            error: "messageBody required (provide body.message or body.messageBody)",
-            hint: "Your message was empty after trimming/HTML stripping.",
-          }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      }
-
-      const endpoint = `${SMOOBU_BASE_URL}/reservations/${bookingId}/messages/send-message-to-guest`;
-
-      const sendResponse = await fetch(endpoint, {
-        method: "POST",
+      // 1) SEND as host message
+      const sendResponse = await fetch(
+        `${SMOOBU_BASE_URL}/reservations/${bookingId}/messages/send-message-to-guest`,
+        {
+          method: "POST",
         headers: smoobuHeaders,
         body: JSON.stringify({
-          messageBody,
-          ...(subject ? { subject } : {}),
-        }),
-      });
+          message,
+          type: 1 // ✅ host message
+        })
+      })
 
-      const sendData = await readJsonOrText(sendResponse);
+      const sendData = await readJsonOrText(sendResponse)
 
-      // Optional: verify by re-fetching messages and searching for the sent text
-      let verified: boolean | null = null;
-      let verifySample: any = null;
+      // 2) OPTIONAL VERIFY: re-fetch messages and check if it appears
+      let verified: boolean | null = null
+      let verifySample: any = null
 
       if (verify && sendResponse.ok) {
         try {
-          const verifyResponse = await fetch(
-            `${SMOOBU_BASE_URL}/reservations/${bookingId}/messages`,
-            { headers: smoobuHeaders }
-          );
-          const verifyData = await readJsonOrText(verifyResponse);
-          const msgs = (verifyData as any)?.messages;
+          const verifyResponse = await fetch(`${SMOOBU_BASE_URL}/reservations/${bookingId}/messages`, {
+            headers: smoobuHeaders
+          })
+          const verifyData: any = await readJsonOrText(verifyResponse)
+          const msgs = verifyData?.messages
 
           if (Array.isArray(msgs)) {
-            const needle = messageBody.toLowerCase();
+            const needle = String(message).trim().toLowerCase()
             verified = msgs.some((m: any) =>
-              String(m?.message || "")
-                .toLowerCase()
-                .includes(needle)
-            );
-            verifySample = msgs.slice(0, 3);
+              String(m?.message || "").trim().toLowerCase().includes(needle)
+            )
+            verifySample = msgs.slice(0, 3)
           } else {
-            verified = false;
+            verified = false
           }
         } catch {
-          verified = false;
+          verified = false
         }
       }
 
-      return new Response(
-        JSON.stringify({
-          ok: sendResponse.ok,
-          status: sendResponse.status,
-          result: sendData,
-          verified,
-          verify_sample: verifySample,
-        }),
-        {
-          status: sendResponse.ok ? 200 : sendResponse.status,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return new Response(JSON.stringify({
+        ok: sendResponse.ok,
+        status: sendResponse.status,
+        result: sendData,
+        verified,
+        verify_sample: verifySample
+      }), {
+        status: sendResponse.ok ? 200 : sendResponse.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      })
     }
 
-    // ===============================
-    // IMPORTANT:
-    // Keep your existing actions (rates, apartments, update-rates, ticketmaster, etc.)
-    // This file focuses on the send-message fix; if you had additional actions in your
-    // current deployment, merge them below unchanged.
-    // ===============================
 
-    return new Response(JSON.stringify({ error: "Invalid action" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Unknown action
+    return new Response(
+      JSON.stringify({ error: "Unknown action", action }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    )
+
+  } catch (error) {
+    console.error("[Smoobu Proxy] Error:", error)
+    return new Response(
+      JSON.stringify({ error: "Proxy error", detail: String(error) }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    )
   }
-});
+})
