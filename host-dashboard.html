@@ -2475,13 +2475,19 @@ async function saveAiUsageToDb(type) {
   if (!userId || !uuidRe.test(userId)) return;
 
   try {
-    await db.from('ai_usage_logs').insert({
+    // Build payload using only known columns and safe types
+    const safeActionType = (typeof actionType === 'string' && actionType.trim())
+      ? actionType.trim()
+      : 'unknown';
+    const payload = [{
       user_id: userId,
-      action_type: actionType,
-      created_at: new Date().toISOString(),
-      // optional fields if table supports them
+      action_type: safeActionType,
+      // optional fields supported by ai_usage_logs
       is_autonomous: false
-    });
+    }];
+
+    // PostgREST is happiest with an array of rows
+    await db.from('ai_usage_logs').insert(payload);
   } catch (e) {
     // Common: RLS, table absent, or temporary network issues. Ignore.
     console.log('Could not log AI usage:', e?.message || e);
