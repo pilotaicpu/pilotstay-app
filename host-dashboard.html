@@ -2452,20 +2452,48 @@ function trackAiUsage(type = 'other') {
   saveAiUsageToDb(type);
 }
 
-// Save AI usage to database
+// Save AI usage to database (best-effort; never block the app)
 async function saveAiUsageToDb(type) {
-  if (!user || !db) return;
+  if (!db) return;
+
+  // Ensure action_type is a simple string
+  const actionType = (typeof type === 'string' ? type : (type && typeof type === 'object' ? (type.action_type || type.type || 'other') : 'other')).toString();
+
+  // Resolve a valid user id (do NOT assume global 'user' is ready yet)
+  let userId = (typeof user !== 'undefined' && user && user.id) ? user.id : null;
+
+  // Try to resolve from auth session if needed (Supabase v2)
+  if (!userId && db?.auth?.getUser) {
+    try {
+      const { data } = await db.auth.getUser();
+      userId = data?.user?.id || null;
+    } catch (_) {}
+  }
+
+  // Validate uuid to avoid 400 "invalid uuid"
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!userId || !uuidRe.test(userId)) return;
+
   try {
-    await db.from('ai_usage_logs').insert({
-      user_id: user.id,
-      action_type: type,
-      created_at: new Date().toISOString()
-    });
+    // Build payload using only known columns and safe types
+    const safeActionType = (typeof actionType === 'string' && actionType.trim())
+      ? actionType.trim()
+      : 'unknown';
+    const payload = [{
+      user_id: userId,
+      action_type: safeActionType,
+      // optional fields supported by ai_usage_logs
+      is_autonomous: false
+    }];
+
+    // PostgREST is happiest with an array of rows
+    await db.from('ai_usage_logs').insert(payload);
   } catch (e) {
-    // Table might not exist, ignore
-    console.log('Could not log AI usage:', e);
+    // Common: RLS, table absent, or temporary network issues. Ignore.
+    console.log('Could not log AI usage:', e?.message || e);
   }
 }
+
 
 // Automation Settings - persisted in localStorage and Supabase
 // Modes: 'off' | 'manual' | 'auto' | 'hybrid'
@@ -2669,13 +2697,15 @@ automationSettings._version = Date.now();
     // Database Log (für ROI)
     if (user && db) {
       try {
-        await db.from('ai_usage_logs').insert({
+        await db.from('ai_usage_logs').insert([{
           user_id: user.id,
           action_type: `autonomous_${module}`,
-          metadata: actionData,
+          is_autonomous: true,
+          mode: (automationSettings && (automationSettings.autoMode || automationSettings.mode)) || null,
+          confidence: (actionData && typeof actionData.confidence === 'number') ? actionData.confidence : null,
           created_at: logEntry.timestamp
-        });
-      } catch (e) {
+        }]);
+} catch (e) {
         console.log('Could not log autonomous action to DB:', e.message);
       }
     }
@@ -4262,6 +4292,12 @@ async function loadSmoobuMessages() {
           const dirVal = safeStr(msg.direction);
           const sentByVal = safeStr(msg.sent_by);
           const senderVal = safeStr(msg.sender);
+
+          // Heuristic: If Smoobu does not provide direction/sender,
+          // classify as HOST if message matches one we recently sent.
+          const msgTextRaw = (msg.message || msg.messageBody || msg.text || msg.content || '');
+          const hostByHistory = isLikelyHostByHistory(booking.smoobu_id, msgTextRaw);
+
           
           // Smoobu type values: 1 = HostToGuest, 2 = GuestToHost
           // WICHTIG: Check HOST (type 1) FIRST to prevent loop!
@@ -6702,21 +6738,8 @@ function selectChat(chatId) {
   }
   renderPage();
   setTimeout(scrollChatToBottom, 100);
-
-  // ✅ Persist draft per chat (so typed text survives reloads)
-  setTimeout(() => {
-    const input = document.getElementById('msg-input');
-    if (!input) return;
-    const key = `pilotstay_draft_${activeChat}`;
-    try {
-      const saved = localStorage.getItem(key);
-      if (saved && !input.value) input.value = saved;
-    } catch (_) {}
-    input.oninput = () => {
-      try { localStorage.setItem(key, input.value || ''); } catch (_) {}
-    };
-  }, 0);
 }
+
 // Scroll to bottom
 function scrollChatToBottom() {
   const el = document.getElementById('chat-messages');
@@ -7019,8 +7042,6 @@ async function sendMessage() {
   
   // Clear input
   input.value = '';
-  // Clear persisted draft for this chat
-  try { localStorage.removeItem(`pilotstay_draft_${activeChat}`); } catch (_) {}
   
   // Add message locally - MANUAL (nicht KI!)
   const newMsg = {
@@ -7049,19 +7070,12 @@ async function sendMessage() {
   if (canSend) {
     try {
       const url = `${SMOOBU_PROXY_URL}?action=send-message`;
-      const payload = { bookingId: (chat?.smoobuId || chat?.bookingId || chat?.booking_id || chat?.reservationId || chat?.reservation_id || chat?.smoobu_booking_id || null), message: text };
+      const payload = { bookingId: chat.smoobuId, messageBody: text };
       
       console.log('   URL:', url);
       console.log('   Payload:', JSON.stringify(payload));
       
-      // ✅ Guard: Smoobu send-message benötigt bookingId + message
-      if (!payload.bookingId || !payload.message || !String(payload.message).trim()) {
-        console.warn('⛔ Not sending to Smoobu - missing bookingId/message', payload);
-        showToast('Nachricht konnte nicht gesendet werden (fehlende Buchungs-ID).');
-        return;
-      }
-
-const response = await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 
@@ -7069,50 +7083,22 @@ const response = await fetch(url, {
         },
         body: JSON.stringify(payload)
       });
-
+      
       console.log('   Response Status:', response.status);
       const responseText = await response.text();
       console.log('   Response Body:', responseText);
-
-      // Some APIs return 2xx but include an error payload – treat that as failure.
-      let parsedBody = null;
-      try { parsedBody = responseText ? JSON.parse(responseText) : null; } catch (_) {}
-      const looksLikeError = !!(parsedBody && (parsedBody.error || parsedBody.errors || parsedBody.message === 'error'));
-
-      if (response.ok && !looksLikeError) {
-        // Optional verification: fetch messages and see if the text shows up
-        try {
-          const verifyRes = await fetch(`${SMOOBU_PROXY_URL}?action=messages&bookingId=${encodeURIComponent(String(payload.bookingId))}`, {
-            headers: { 'x-smoobu-key': smoobuConfig.apiKey }
-          });
-          const verifyText = await verifyRes.text();
-          let verifyJson = null;
-          try { verifyJson = verifyText ? JSON.parse(verifyText) : null; } catch (_) {}
-
-          const verifyStr = JSON.stringify(verifyJson || verifyText || '');
-          const found = verifyStr && verifyStr.includes(text);
-
-          if (!found) {
-            console.warn('⚠️ Smoobu accepted send-message, but message not found on immediate re-fetch. It may appear with delay or bookingId is wrong.');
-            showToast('⚠️ Gesendet (Smoobu verzögert/ID prüfen)', 'warning');
-          } else {
-            showToast('✅ Nachricht gesendet', 'success');
-          }
-        } catch (eVerify) {
-          console.warn('⚠️ Could not verify message on Smoobu:', eVerify);
-          showToast('✅ Nachricht gesendet', 'success');
-        }
-
+      
+      if (response.ok) {
         newMsg.pending = false;
         newMsg.sent = true;
         console.log('✅ Message sent successfully!');
+        showToast('✅ Nachricht gesendet');
       } else {
         newMsg.error = true;
-        const errMsg = (parsedBody && (parsedBody.error || parsedBody.message)) ? (parsedBody.error || parsedBody.message) : `HTTP ${response.status}`;
-        console.error('❌ Smoobu returned error:', errMsg);
-        showToast('⚠️ Fehler: ' + errMsg, 'error');
+        console.error('❌ Smoobu returned error:', response.status);
+        showToast('⚠️ Fehler ' + response.status);
       }
-} catch (e) {
+    } catch (e) {
       newMsg.error = true;
       console.error('❌ Exception while sending:', e);
       showToast('⚠️ ' + e.message);
@@ -7210,11 +7196,10 @@ async function sendTemplateMessage() {
   
   if (smoobuConfig.connected && chat.smoobuId) {
     try {
-      const r = await sendMessageViaSmoobu(chat.smoobuId, text);
-      if (r && r.success) showToast('✅ Nachricht gesendet', 'success');
-      else showToast('⚠️ Fehler: ' + (r?.error || 'Senden fehlgeschlagen'), 'error');
+      await sendMessageViaSmoobu(chat.smoobuId, text);
+      showToast('✅ Nachricht gesendet');
     } catch (e) {
-      showToast('⚠️ Fehler: ' + (e?.message || e), 'error');
+      showToast('⚠️ Lokal gespeichert');
     }
   } else {
     showToast('💬 Nachricht hinzugefügt');
@@ -13133,23 +13118,9 @@ function startSmoobuAutoSync() {
 // Silent sync (no modals, just background update)
 async function syncSmoobuSilent() {
   try {
-    // Build absolute Supabase Functions URL to avoid ERR_NAME_NOT_RESOLVED / missing protocol
-    const proxyBase = (typeof SMOOBU_PROXY_URL === "string" && /^https?:\/\//.test(SMOOBU_PROXY_URL))
-      ? SMOOBU_PROXY_URL
-      : "https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy";
-    const buildSmoobuProxyUrl = (action, params = "") => {
-      const suffix = params ? `&${params}` : "";
-      return `${proxyBase}?action=${encodeURIComponent(action)}${suffix}`;
-    };
-    const commonHeaders = {
-      "x-smoobu-key": smoobuConfig.apiKey,
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
-    };
-
     // Sync Apartments
-    const apartmentsRes = await fetch(buildSmoobuProxyUrl('apartments'), {
-      headers: commonHeaders
+    const apartmentsRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartments`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
     });
     const apartmentsData = await apartmentsRes.json();
     
@@ -13212,8 +13183,8 @@ async function syncSmoobuSilent() {
     }
     
     // Sync Bookings
-    const bookingsRes = await fetch(buildSmoobuProxyUrl('bookings'), {
-      headers: commonHeaders
+    const bookingsRes = await fetch(`${SMOOBU_PROXY_URL}?action=bookings`, {
+      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
     });
     const bookingsData = await bookingsRes.json();
     
@@ -13896,12 +13867,59 @@ function getSimpleFallbackReply(messageText) {
   return null;
 }
 
+
+// -----------------------------------------------------
+// Sent-message tracking (prevents feedback loops)
+// We store hashes of outgoing messages per reservationId
+// so that when Smoobu returns messages without direction fields,
+// we can still classify them as HOST messages.
+// -----------------------------------------------------
+function _psHash(str) {
+  try {
+    // Simple stable hash (non-crypto) for browser
+    let h = 0;
+    const s = String(str || '');
+    for (let i = 0; i < s.length; i++) {
+      h = ((h << 5) - h) + s.charCodeAt(i);
+      h |= 0;
+    }
+    return String(h);
+  } catch (_) { return String(Date.now()); }
+}
+
+function getSentMessageHashes(reservationId) {
+  try {
+    const key = `pilotstay_sent_hashes_${reservationId}`;
+    const raw = localStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (_) { return []; }
+}
+
+function rememberSentMessage(reservationId, messageText) {
+  try {
+    const key = `pilotstay_sent_hashes_${reservationId}`;
+    const arr = getSentMessageHashes(reservationId);
+    const h = _psHash((messageText || '').trim());
+    // Keep recent only (max 200)
+    arr.unshift({ h, t: Date.now() });
+    const pruned = arr.slice(0, 200);
+    localStorage.setItem(key, JSON.stringify(pruned));
+  } catch (_) {}
+}
+
+function isLikelyHostByHistory(reservationId, messageText) {
+  try {
+    const h = _psHash((messageText || '').trim());
+    const arr = getSentMessageHashes(reservationId);
+    // Only consider last 7 days
+    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    return arr.some(x => x && x.h === h && (!x.t || x.t >= cutoff));
+  } catch (_) { return false; }
+}
+
 // Send message via Smoobu API
 async function sendMessageViaSmoobu(reservationId, messageText) {
-  // ✅ Guard: Edge Function verlangt bookingId + message
-  if (!reservationId || !messageText || !String(messageText).trim()) {
-    return { success: false, error: 'bookingId and message required' };
-  }
   try {
     const response = await fetch(`${SMOOBU_PROXY_URL}?action=send-message`, {
       method: 'POST',
@@ -13914,21 +13932,16 @@ async function sendMessageViaSmoobu(reservationId, messageText) {
         message: messageText
       })
     });
-
-    const bodyText = await response.text();
-    let bodyJson = null;
-    try { bodyJson = bodyText ? JSON.parse(bodyText) : null; } catch (_) {}
-
-    // Treat "error" payloads as failures even on 2xx
-    const looksLikeError = !!(bodyJson && (bodyJson.error || bodyJson.errors));
-    if (response.ok && !looksLikeError) {
-      return { success: true, status: response.status, data: bodyJson || bodyText || null };
+    
+    if (response.ok) {
+      rememberSentMessage(reservationId, messageText);
+      return { success: true };
+    } else {
+      const error = await response.json();
+      return { success: false, error: error.error || error.message || 'Senden fehlgeschlagen' };
     }
-
-    const errMsg = (bodyJson && (bodyJson.error || bodyJson.message)) ? (bodyJson.error || bodyJson.message) : `HTTP ${response.status}`;
-    return { success: false, status: response.status, error: errMsg, data: bodyJson || bodyText || null };
   } catch (error) {
-    return { success: false, error: error?.message || String(error) };
+    return { success: false, error: error.message };
   }
 }
 
@@ -17370,6 +17383,9 @@ getSmoobuKey() {
       escalation: isEscalation,
       validated: !isEscalation
     });
+    // Remember outgoing message hash to prevent feedback-loop misclassification
+    if (chat && chat.smoobuId) { rememberSentMessage(chat.smoobuId, text); }
+
     chat.lastMsg = text;
     chat.unread = 0;
     
