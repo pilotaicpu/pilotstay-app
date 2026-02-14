@@ -2452,20 +2452,42 @@ function trackAiUsage(type = 'other') {
   saveAiUsageToDb(type);
 }
 
-// Save AI usage to database
+// Save AI usage to database (best-effort; never block the app)
 async function saveAiUsageToDb(type) {
-  if (!user || !db) return;
+  if (!db) return;
+
+  // Ensure action_type is a simple string
+  const actionType = (typeof type === 'string' ? type : (type && typeof type === 'object' ? (type.action_type || type.type || 'other') : 'other')).toString();
+
+  // Resolve a valid user id (do NOT assume global 'user' is ready yet)
+  let userId = (typeof user !== 'undefined' && user && user.id) ? user.id : null;
+
+  // Try to resolve from auth session if needed (Supabase v2)
+  if (!userId && db?.auth?.getUser) {
+    try {
+      const { data } = await db.auth.getUser();
+      userId = data?.user?.id || null;
+    } catch (_) {}
+  }
+
+  // Validate uuid to avoid 400 "invalid uuid"
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!userId || !uuidRe.test(userId)) return;
+
   try {
     await db.from('ai_usage_logs').insert({
-      user_id: user.id,
-      action_type: type,
-      created_at: new Date().toISOString()
+      user_id: userId,
+      action_type: actionType,
+      created_at: new Date().toISOString(),
+      // optional fields if table supports them
+      is_autonomous: false
     });
   } catch (e) {
-    // Table might not exist, ignore
-    console.log('Could not log AI usage:', e);
+    // Common: RLS, table absent, or temporary network issues. Ignore.
+    console.log('Could not log AI usage:', e?.message || e);
   }
 }
+
 
 // Automation Settings - persisted in localStorage and Supabase
 // Modes: 'off' | 'manual' | 'auto' | 'hybrid'
