@@ -2697,13 +2697,15 @@ automationSettings._version = Date.now();
     // Database Log (für ROI)
     if (user && db) {
       try {
-        await db.from('ai_usage_logs').insert({
+        await db.from('ai_usage_logs').insert([{
           user_id: user.id,
           action_type: `autonomous_${module}`,
-          metadata: actionData,
+          is_autonomous: true,
+          mode: (automationSettings && (automationSettings.autoMode || automationSettings.mode)) || null,
+          confidence: (actionData && typeof actionData.confidence === 'number') ? actionData.confidence : null,
           created_at: logEntry.timestamp
-        });
-      } catch (e) {
+        }]);
+} catch (e) {
         console.log('Could not log autonomous action to DB:', e.message);
       }
     }
