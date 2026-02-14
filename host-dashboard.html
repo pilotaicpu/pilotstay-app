@@ -12517,7 +12517,7 @@ async function loadAutomationSettings() {
       .maybeSingle();
 
     // 2) Load from profiles (legacy fallback + other user prefs)
-    const { data: проф, error: pErr } = await db
+    const { data: profileRow, error: pErr } = await db
       .from('profiles')
       .select('*')
       .eq('id', user.id)
@@ -12572,33 +12572,33 @@ async function loadAutomationSettings() {
     // -----------------------------------------------------
     // Fallback: legacy profile fields ONLY if missing
     // -----------------------------------------------------
-    if (проф && !pErr) {
+    if (profileRow && !pErr) {
       // On/off legacy
-      if (automationSettings.smartReplies === undefined) applyEnabled('smartReplies', проф.automation_smart_replies);
-      if (automationSettings.reviewReplies === undefined) applyEnabled('reviewReplies', проф.automation_review_replies);
-      if (automationSettings.autoPricing === undefined) applyEnabled('autoPricing', проф.automation_pricing);
-      if (automationSettings.autoJobs === undefined) applyEnabled('autoJobs', проф.automation_jobs);
+      if (automationSettings.smartReplies === undefined) applyEnabled('smartReplies', profileRow.automation_smart_replies);
+      if (automationSettings.reviewReplies === undefined) applyEnabled('reviewReplies', profileRow.automation_review_replies);
+      if (automationSettings.autoPricing === undefined) applyEnabled('autoPricing', profileRow.automation_pricing);
+      if (automationSettings.autoJobs === undefined) applyEnabled('autoJobs', profileRow.automation_jobs);
 
       // Modes legacy
-      if (!automationSettings.smartRepliesMode) applyMode('smartReplies', проф.smart_replies_mode || 'manual');
-      if (!automationSettings.reviewRepliesMode) applyMode('reviewReplies', проф.review_replies_mode || 'manual');
-      if (!automationSettings.autoPricingMode) applyMode('autoPricing', проф.auto_pricing_mode || 'manual');
-      if (!automationSettings.autoJobsMode) applyMode('autoJobs', проф.auto_jobs_mode || 'manual');
+      if (!automationSettings.smartRepliesMode) applyMode('smartReplies', profileRow.smart_replies_mode || 'manual');
+      if (!automationSettings.reviewRepliesMode) applyMode('reviewReplies', profileRow.review_replies_mode || 'manual');
+      if (!automationSettings.autoPricingMode) applyMode('autoPricing', profileRow.auto_pricing_mode || 'manual');
+      if (!automationSettings.autoJobsMode) applyMode('autoJobs', profileRow.auto_jobs_mode || 'manual');
 
       // Other AI prefs
-      if (!automationSettings.aiTone && проф.ai_tone) automationSettings.aiTone = проф.ai_tone;
-      if (!automationSettings.aiLanguage && проф.ai_language) automationSettings.aiLanguage = проф.ai_language;
-      if (automationSettings.aiLearning === undefined && проф.ai_learning !== undefined && проф.ai_learning !== null) {
-        automationSettings.aiLearning = !!проф.ai_learning;
+      if (!automationSettings.aiTone && profileRow.ai_tone) automationSettings.aiTone = profileRow.ai_tone;
+      if (!automationSettings.aiLanguage && profileRow.ai_language) automationSettings.aiLanguage = profileRow.ai_language;
+      if (automationSettings.aiLearning === undefined && profileRow.ai_learning !== undefined && profileRow.ai_learning !== null) {
+        automationSettings.aiLearning = !!profileRow.ai_learning;
       }
 
       // Smoobu key cache
-      if (проф.smoobu_api_key) {
-        smoobuConfig.apiKey = проф.smoobu_api_key;
-        localStorage.setItem('smoobu_api_key', проф.smoobu_api_key);
+      if (profileRow.smoobu_api_key) {
+        smoobuConfig.apiKey = profileRow.smoobu_api_key;
+        localStorage.setItem('smoobu_api_key', profileRow.smoobu_api_key);
       }
-      if (проф.ai_context) {
-        aiContext = { ...aiContext, ...проф.ai_context };
+      if (profileRow.ai_context) {
+        aiContext = { ...aiContext, ...profileRow.ai_context };
       }
     }
 
@@ -12608,82 +12608,6 @@ async function loadAutomationSettings() {
 
   } catch (e) {
     console.error('Failed to load automation settings:', e);
-  }
-}
-if (data.review_replies_mode !== undefined) {
-  automationSettings.reviewRepliesMode = normalizeAutomationMode('reviewReplies', data.review_replies_mode);
-}
-if (data.auto_pricing_mode !== undefined) {
-  automationSettings.autoPricingMode = normalizeAutomationMode('autoPricing', data.auto_pricing_mode);
-}
-if (data.auto_jobs_mode !== undefined) {
-  automationSettings.autoJobsMode = normalizeAutomationMode('autoJobs', data.auto_jobs_mode);
-}
-
-// Load AI settings
-      if (data.ai_tone) {
-        automationSettings.aiTone = data.ai_tone;
-      }
-      if (data.ai_language) {
-        automationSettings.aiLanguage = data.ai_language;
-      }
-      if (data.ai_learning !== undefined && data.ai_learning !== null) {
-        automationSettings.aiLearning = data.ai_learning;
-      }
-      
-      // Load AI Context
-      if (data.ai_context) {
-        aiContext = { ...aiContext, ...data.ai_context };
-      }
-      
-      // Load Smoobu settings - prefer DB, fallback to localStorage
-      if (data.smoobu_api_key) {
-        smoobuConfig.apiKey = data.smoobu_api_key;
-        localStorage.setItem('smoobu_api_key', data.smoobu_api_key);
-      } else {
-        // Keep localStorage value if DB doesn't have it
-        const localKey = localStorage.getItem('smoobu_api_key');
-        if (localKey) {
-          smoobuConfig.apiKey = localKey;
-          // Sync to DB if we have a local key but DB doesn't
-          db.from('profiles').update({ smoobu_api_key: localKey }).eq('id', user.id);
-        }
-      }
-      
-      if (data.smoobu_connected !== undefined && data.smoobu_connected !== null) {
-        smoobuConfig.connected = data.smoobu_connected;
-        localStorage.setItem('smoobu_connected', data.smoobu_connected.toString());
-      } else {
-        // Keep localStorage value if DB doesn't have it
-        smoobuConfig.connected = localStorage.getItem('smoobu_connected') === 'true';
-      }
-      
-      // Load Smoobu sync interval
-      if (data.smoobu_sync_interval) {
-        localStorage.setItem('smoobu_sync_interval', data.smoobu_sync_interval.toString());
-      }
-      
-      // Load Smoobu last sync time
-      if (data.smoobu_last_sync) {
-        smoobuConfig.lastSync = data.smoobu_last_sync;
-        localStorage.setItem('smoobu_last_sync', data.smoobu_last_sync);
-      }
-      
-      // Load pricing strategy
-      if (data.pricing_strategy) {
-        pricingData.strategy = data.pricing_strategy;
-        localStorage.setItem('pricing_strategy', data.pricing_strategy);
-      }
-    }
-  } catch (e) {
-    console.log('Using localStorage settings:', e);
-    // Fallback to localStorage
-    const localContext = localStorage.getItem('ai_context');
-    if (localContext) {
-      try {
-        aiContext = { ...aiContext, ...JSON.parse(localContext) };
-      } catch (parseError) {}
-    }
   }
 }
 
