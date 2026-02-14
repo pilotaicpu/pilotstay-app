@@ -7034,12 +7034,19 @@ async function sendMessage() {
   if (canSend) {
     try {
       const url = `${SMOOBU_PROXY_URL}?action=send-message`;
-      const payload = { bookingId: chat.smoobuId, messageBody: text };
+      const payload = { bookingId: (chat?.smoobuId || chat?.bookingId || chat?.booking_id || chat?.reservationId || chat?.reservation_id || chat?.smoobu_booking_id || null), message: text };
       
       console.log('   URL:', url);
       console.log('   Payload:', JSON.stringify(payload));
       
-      const response = await fetch(url, {
+      // ✅ Guard: Smoobu send-message benötigt bookingId + message
+      if (!payload.bookingId || !payload.message || !String(payload.message).trim()) {
+        console.warn('⛔ Not sending to Smoobu - missing bookingId/message', payload);
+        showToast('Nachricht konnte nicht gesendet werden (fehlende Buchungs-ID).');
+        return;
+      }
+
+const response = await fetch(url, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 
@@ -13847,6 +13854,10 @@ function getSimpleFallbackReply(messageText) {
 
 // Send message via Smoobu API
 async function sendMessageViaSmoobu(reservationId, messageText) {
+  // ✅ Guard: Edge Function verlangt bookingId + message
+  if (!reservationId || !messageText || !String(messageText).trim()) {
+    return { success: false, error: 'bookingId and message required' };
+  }
   try {
     const response = await fetch(`${SMOOBU_PROXY_URL}?action=send-message`, {
       method: 'POST',
