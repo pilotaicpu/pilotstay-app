@@ -16891,6 +16891,25 @@ class PilotStayAgent {
     return false;
   }
 
+  // Prevent feedback loops: remember last inbound message we already handled per chat/booking.
+  _lastHandledKey(chatId) {
+    return `pilotstay_last_handled_${chatId}`;
+  }
+  _getLastHandled(chatId) {
+    try {
+      return localStorage.getItem(this._lastHandledKey(chatId));
+    } catch (_) {
+      return null;
+    }
+  }
+  _setLastHandled(chatId, messageId) {
+    try {
+      if (!chatId || messageId == null) return;
+      localStorage.setItem(this._lastHandledKey(chatId), String(messageId));
+    } catch (_) {}
+  }
+
+
 getSmoobuKey() {
     const key = localStorage.getItem("smoobu_api_key");
     return key ? key.trim() : null;
@@ -17031,6 +17050,13 @@ getSmoobuKey() {
       const lastMessage = chat?.messages?.[chat.messages.length - 1];
       if (!lastMessage || lastMessage.from === "me") continue;
 
+      // Feedback-loop guard: if we already handled this inbound message ID, skip.
+      const lastHandled = this._getLastHandled(chat.id);
+      if (lastHandled && String(lastMessage.id) === String(lastHandled)) {
+        console.log(`⏭️ Already handled message ${lastMessage.id} for chat ${chat.name}`);
+        continue;
+      }
+
       // Analyze the message
       const analysis = this.analyzeMessage(lastMessage.text);
 
@@ -17065,6 +17091,8 @@ getSmoobuKey() {
 
       // Execute decision
       await this.executeDecision(chat, lastMessage, decision);
+      // Mark inbound message as handled so we don't answer it again on next poll.
+      if (lastMessage?.id != null) this._setLastHandled(chat.id, lastMessage.id);
     }
   }
 
