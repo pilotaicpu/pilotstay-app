@@ -7166,7 +7166,7 @@ async function sendMessage() {
         newMsg.pending = false;
         newMsg.sent = true;
         // Prevent feedback-loop: remember what we just sent so polling won't treat it as a new guest message
-        rememberSentMessage(String(bookingId), messageBody);
+        rememberSentMessage(String(chat.smoobuId), text);
         console.log('✅ Message sent successfully!');
         showToast('✅ Nachricht gesendet');
       } else {
