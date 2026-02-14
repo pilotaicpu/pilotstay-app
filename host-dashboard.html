@@ -2452,48 +2452,20 @@ function trackAiUsage(type = 'other') {
   saveAiUsageToDb(type);
 }
 
-// Save AI usage to database (best-effort; never block the app)
+// Save AI usage to database
 async function saveAiUsageToDb(type) {
-  if (!db) return;
-
-  // Ensure action_type is a simple string
-  const actionType = (typeof type === 'string' ? type : (type && typeof type === 'object' ? (type.action_type || type.type || 'other') : 'other')).toString();
-
-  // Resolve a valid user id (do NOT assume global 'user' is ready yet)
-  let userId = (typeof user !== 'undefined' && user && user.id) ? user.id : null;
-
-  // Try to resolve from auth session if needed (Supabase v2)
-  if (!userId && db?.auth?.getUser) {
-    try {
-      const { data } = await db.auth.getUser();
-      userId = data?.user?.id || null;
-    } catch (_) {}
-  }
-
-  // Validate uuid to avoid 400 "invalid uuid"
-  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!userId || !uuidRe.test(userId)) return;
-
+  if (!user || !db) return;
   try {
-    // Build payload using only known columns and safe types
-    const safeActionType = (typeof actionType === 'string' && actionType.trim())
-      ? actionType.trim()
-      : 'unknown';
-    const payload = [{
-      user_id: userId,
-      action_type: safeActionType,
-      // optional fields supported by ai_usage_logs
-      is_autonomous: false
-    }];
-
-    // PostgREST is happiest with an array of rows
-    await db.from('ai_usage_logs').insert(payload);
+    await db.from('ai_usage_logs').insert({
+      user_id: user.id,
+      action_type: type,
+      created_at: new Date().toISOString()
+    });
   } catch (e) {
-    // Common: RLS, table absent, or temporary network issues. Ignore.
-    console.log('Could not log AI usage:', e?.message || e);
+    // Table might not exist, ignore
+    console.log('Could not log AI usage:', e);
   }
 }
-
 
 // Automation Settings - persisted in localStorage and Supabase
 // Modes: 'off' | 'manual' | 'auto' | 'hybrid'
@@ -2697,15 +2669,13 @@ automationSettings._version = Date.now();
     // Database Log (für ROI)
     if (user && db) {
       try {
-        await db.from('ai_usage_logs').insert([{
+        await db.from('ai_usage_logs').insert({
           user_id: user.id,
           action_type: `autonomous_${module}`,
-          is_autonomous: true,
-          mode: (automationSettings && (automationSettings.autoMode || automationSettings.mode)) || null,
-          confidence: (actionData && typeof actionData.confidence === 'number') ? actionData.confidence : null,
+          metadata: actionData,
           created_at: logEntry.timestamp
-        }]);
-} catch (e) {
+        });
+      } catch (e) {
         console.log('Could not log autonomous action to DB:', e.message);
       }
     }
@@ -13112,9 +13082,23 @@ function startSmoobuAutoSync() {
 // Silent sync (no modals, just background update)
 async function syncSmoobuSilent() {
   try {
+    // Build absolute Supabase Functions URL to avoid ERR_NAME_NOT_RESOLVED / missing protocol
+    const proxyBase = (typeof SMOOBU_PROXY_URL === "string" && /^https?:\/\//.test(SMOOBU_PROXY_URL))
+      ? SMOOBU_PROXY_URL
+      : "https://uamlcodalgibboftvhqp.supabase.co/functions/v1/smoobu-proxy";
+    const buildSmoobuProxyUrl = (action, params = "") => {
+      const suffix = params ? `&${params}` : "";
+      return `${proxyBase}?action=${encodeURIComponent(action)}${suffix}`;
+    };
+    const commonHeaders = {
+      "x-smoobu-key": smoobuConfig.apiKey,
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+    };
+
     // Sync Apartments
-    const apartmentsRes = await fetch(`${SMOOBU_PROXY_URL}?action=apartments`, {
-      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    const apartmentsRes = await fetch(buildSmoobuProxyUrl('apartments'), {
+      headers: commonHeaders
     });
     const apartmentsData = await apartmentsRes.json();
     
@@ -13177,8 +13161,8 @@ async function syncSmoobuSilent() {
     }
     
     // Sync Bookings
-    const bookingsRes = await fetch(`${SMOOBU_PROXY_URL}?action=bookings`, {
-      headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+    const bookingsRes = await fetch(buildSmoobuProxyUrl('bookings'), {
+      headers: commonHeaders
     });
     const bookingsData = await bookingsRes.json();
     
