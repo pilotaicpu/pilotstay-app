@@ -6702,8 +6702,21 @@ function selectChat(chatId) {
   }
   renderPage();
   setTimeout(scrollChatToBottom, 100);
-}
 
+  // ✅ Persist draft per chat (so typed text survives reloads)
+  setTimeout(() => {
+    const input = document.getElementById('msg-input');
+    if (!input) return;
+    const key = `pilotstay_draft_${activeChat}`;
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved && !input.value) input.value = saved;
+    } catch (_) {}
+    input.oninput = () => {
+      try { localStorage.setItem(key, input.value || ''); } catch (_) {}
+    };
+  }, 0);
+}
 // Scroll to bottom
 function scrollChatToBottom() {
   const el = document.getElementById('chat-messages');
@@ -7006,6 +7019,8 @@ async function sendMessage() {
   
   // Clear input
   input.value = '';
+  // Clear persisted draft for this chat
+  try { localStorage.removeItem(`pilotstay_draft_${activeChat}`); } catch (_) {}
   
   // Add message locally - MANUAL (nicht KI!)
   const newMsg = {
@@ -7054,22 +7069,50 @@ const response = await fetch(url, {
         },
         body: JSON.stringify(payload)
       });
-      
+
       console.log('   Response Status:', response.status);
       const responseText = await response.text();
       console.log('   Response Body:', responseText);
-      
-      if (response.ok) {
+
+      // Some APIs return 2xx but include an error payload – treat that as failure.
+      let parsedBody = null;
+      try { parsedBody = responseText ? JSON.parse(responseText) : null; } catch (_) {}
+      const looksLikeError = !!(parsedBody && (parsedBody.error || parsedBody.errors || parsedBody.message === 'error'));
+
+      if (response.ok && !looksLikeError) {
+        // Optional verification: fetch messages and see if the text shows up
+        try {
+          const verifyRes = await fetch(`${SMOOBU_PROXY_URL}?action=messages&bookingId=${encodeURIComponent(String(payload.bookingId))}`, {
+            headers: { 'x-smoobu-key': smoobuConfig.apiKey }
+          });
+          const verifyText = await verifyRes.text();
+          let verifyJson = null;
+          try { verifyJson = verifyText ? JSON.parse(verifyText) : null; } catch (_) {}
+
+          const verifyStr = JSON.stringify(verifyJson || verifyText || '');
+          const found = verifyStr && verifyStr.includes(text);
+
+          if (!found) {
+            console.warn('⚠️ Smoobu accepted send-message, but message not found on immediate re-fetch. It may appear with delay or bookingId is wrong.');
+            showToast('⚠️ Gesendet (Smoobu verzögert/ID prüfen)', 'warning');
+          } else {
+            showToast('✅ Nachricht gesendet', 'success');
+          }
+        } catch (eVerify) {
+          console.warn('⚠️ Could not verify message on Smoobu:', eVerify);
+          showToast('✅ Nachricht gesendet', 'success');
+        }
+
         newMsg.pending = false;
         newMsg.sent = true;
         console.log('✅ Message sent successfully!');
-        showToast('✅ Nachricht gesendet');
       } else {
         newMsg.error = true;
-        console.error('❌ Smoobu returned error:', response.status);
-        showToast('⚠️ Fehler ' + response.status);
+        const errMsg = (parsedBody && (parsedBody.error || parsedBody.message)) ? (parsedBody.error || parsedBody.message) : `HTTP ${response.status}`;
+        console.error('❌ Smoobu returned error:', errMsg);
+        showToast('⚠️ Fehler: ' + errMsg, 'error');
       }
-    } catch (e) {
+} catch (e) {
       newMsg.error = true;
       console.error('❌ Exception while sending:', e);
       showToast('⚠️ ' + e.message);
@@ -7167,10 +7210,11 @@ async function sendTemplateMessage() {
   
   if (smoobuConfig.connected && chat.smoobuId) {
     try {
-      await sendMessageViaSmoobu(chat.smoobuId, text);
-      showToast('✅ Nachricht gesendet');
+      const r = await sendMessageViaSmoobu(chat.smoobuId, text);
+      if (r && r.success) showToast('✅ Nachricht gesendet', 'success');
+      else showToast('⚠️ Fehler: ' + (r?.error || 'Senden fehlgeschlagen'), 'error');
     } catch (e) {
-      showToast('⚠️ Lokal gespeichert');
+      showToast('⚠️ Fehler: ' + (e?.message || e), 'error');
     }
   } else {
     showToast('💬 Nachricht hinzugefügt');
@@ -13870,15 +13914,21 @@ async function sendMessageViaSmoobu(reservationId, messageText) {
         message: messageText
       })
     });
-    
-    if (response.ok) {
-      return { success: true };
-    } else {
-      const error = await response.json();
-      return { success: false, error: error.error || error.message || 'Senden fehlgeschlagen' };
+
+    const bodyText = await response.text();
+    let bodyJson = null;
+    try { bodyJson = bodyText ? JSON.parse(bodyText) : null; } catch (_) {}
+
+    // Treat "error" payloads as failures even on 2xx
+    const looksLikeError = !!(bodyJson && (bodyJson.error || bodyJson.errors));
+    if (response.ok && !looksLikeError) {
+      return { success: true, status: response.status, data: bodyJson || bodyText || null };
     }
+
+    const errMsg = (bodyJson && (bodyJson.error || bodyJson.message)) ? (bodyJson.error || bodyJson.message) : `HTTP ${response.status}`;
+    return { success: false, status: response.status, error: errMsg, data: bodyJson || bodyText || null };
   } catch (error) {
-    return { success: false, error: error.message };
+    return { success: false, error: error?.message || String(error) };
   }
 }
 
