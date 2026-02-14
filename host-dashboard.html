@@ -1448,6 +1448,30 @@ function trackPricingChangeForROI(propertyId, newPrice) {
   ROIPersistence.realData.autoPricingActions++;
 }
 
+
+// Normalize automation modes to prevent invalid/null values from cascading into UI/agent behavior
+function normalizeAutomationMode(feature, mode) {
+  const allowed = {
+    smartReplies: ['manual','hybrid','auto'],
+    reviewReplies: ['manual','hybrid'], // no auto for reviews (publishing not possible)
+    autoPricing: ['manual','auto'],
+    autoJobs: ['manual','hybrid','auto']
+  };
+  const fallback = (allowed[feature] && allowed[feature][0]) || 'manual';
+  if (mode === null || mode === undefined) return fallback;
+  const m = String(mode).toLowerCase().trim();
+  // Treat 'off' like manual; actual disable is handled via *_enabled toggles
+  if (m === 'off' || m === '') return fallback;
+  if (allowed[feature]?.includes(m)) return m;
+  // Backward-compat: if someone stored 'auto' for reviews, treat as hybrid
+  if (feature === 'reviewReplies' && m === 'auto') return 'hybrid';
+  return fallback;
+}
+
+function normalizeBool(value, fallback = false) {
+  return (typeof value === 'boolean') ? value : fallback;
+}
+
 // =====================================================
 // AUTOMATION SETTINGS PERSISTENCE (Server-side)
 // =====================================================
@@ -1465,17 +1489,22 @@ const AutomationPersistence = {
       
       if (data && !error) {
         // Update local state from server (Server is source of truth)
-        automationSettings.smartReplies = data.smart_replies_enabled;
-        automationSettings.smartRepliesMode = data.smart_replies_mode;
-        automationSettings.reviewReplies = data.review_replies_enabled;
-        automationSettings.reviewRepliesMode = data.review_replies_mode;
-        automationSettings.autoPricing = data.auto_pricing_enabled;
-        automationSettings.autoPricingMode = data.auto_pricing_mode;
-        automationSettings.autoJobs = data.auto_jobs_enabled;
-        automationSettings.autoJobsMode = data.auto_jobs_mode;
-        automationSettings.aiLearning = data.ai_learning_enabled;
-        automationSettings.aiTone = data.ai_tone;
-        automationSettings.aiLanguage = data.ai_language;
+// IMPORTANT: never overwrite with null/undefined; otherwise the UI can "fall through" and look like AUTO.
+automationSettings.smartReplies = normalizeBool(data.smart_replies_enabled, automationSettings.smartReplies);
+automationSettings.smartRepliesMode = normalizeAutomationMode('smartReplies', data.smart_replies_mode || automationSettings.smartRepliesMode);
+
+automationSettings.reviewReplies = normalizeBool(data.review_replies_enabled, automationSettings.reviewReplies);
+automationSettings.reviewRepliesMode = normalizeAutomationMode('reviewReplies', data.review_replies_mode || automationSettings.reviewRepliesMode);
+
+automationSettings.autoPricing = normalizeBool(data.auto_pricing_enabled, automationSettings.autoPricing);
+automationSettings.autoPricingMode = normalizeAutomationMode('autoPricing', data.auto_pricing_mode || automationSettings.autoPricingMode);
+
+automationSettings.autoJobs = normalizeBool(data.auto_jobs_enabled, automationSettings.autoJobs);
+automationSettings.autoJobsMode = normalizeAutomationMode('autoJobs', data.auto_jobs_mode || automationSettings.autoJobsMode);
+
+automationSettings.aiLearning = normalizeBool(data.ai_learning_enabled, automationSettings.aiLearning);
+if (data.ai_tone) automationSettings.aiTone = data.ai_tone;
+if (data.ai_language) automationSettings.aiLanguage = data.ai_language;
         
         // Sync to localStorage as cache
         this.syncToLocalStorage();
@@ -2540,10 +2569,11 @@ const ModeChecker = {
   // Refresh settings from localStorage/state
   async refreshSettings() {
     // Re-read from localStorage to catch any changes
-    automationSettings.smartRepliesMode = localStorage.getItem('smart_replies_mode') || automationSettings.smartRepliesMode || 'manual';
-    automationSettings.reviewRepliesMode = localStorage.getItem('review_replies_mode') || automationSettings.reviewRepliesMode || 'manual';
-    automationSettings.autoPricingMode = localStorage.getItem('auto_pricing_mode') || automationSettings.autoPricingMode || 'manual';
-    automationSettings._version = Date.now();
+    automationSettings.smartRepliesMode = normalizeAutomationMode('smartReplies', localStorage.getItem('smart_replies_mode') || automationSettings.smartRepliesMode || 'manual');
+automationSettings.reviewRepliesMode = normalizeAutomationMode('reviewReplies', localStorage.getItem('review_replies_mode') || automationSettings.reviewRepliesMode || 'manual');
+automationSettings.autoPricingMode = normalizeAutomationMode('autoPricing', localStorage.getItem('auto_pricing_mode') || automationSettings.autoPricingMode || 'manual');
+automationSettings.autoJobsMode = normalizeAutomationMode('autoJobs', localStorage.getItem('auto_jobs_mode') || automationSettings.autoJobsMode || 'manual');
+automationSettings._version = Date.now();
     
     // Update cache
     this._cache = {
@@ -12486,21 +12516,21 @@ async function loadAutomationSettings() {
         automationSettings.autoJobs = data.automation_jobs;
       }
       
-      // Load mode settings
-      if (data.smart_replies_mode) {
-        automationSettings.smartRepliesMode = data.smart_replies_mode;
-      }
-      if (data.review_replies_mode) {
-        automationSettings.reviewRepliesMode = data.review_replies_mode;
-      }
-      if (data.auto_pricing_mode) {
-        automationSettings.autoPricingMode = data.auto_pricing_mode;
-      }
-      if (data.auto_jobs_mode) {
-        automationSettings.autoJobsMode = data.auto_jobs_mode;
-      }
-      
-      // Load AI settings
+      // Load mode settings (normalize to avoid invalid/null state)
+if (data.smart_replies_mode !== undefined) {
+  automationSettings.smartRepliesMode = normalizeAutomationMode('smartReplies', data.smart_replies_mode);
+}
+if (data.review_replies_mode !== undefined) {
+  automationSettings.reviewRepliesMode = normalizeAutomationMode('reviewReplies', data.review_replies_mode);
+}
+if (data.auto_pricing_mode !== undefined) {
+  automationSettings.autoPricingMode = normalizeAutomationMode('autoPricing', data.auto_pricing_mode);
+}
+if (data.auto_jobs_mode !== undefined) {
+  automationSettings.autoJobsMode = normalizeAutomationMode('autoJobs', data.auto_jobs_mode);
+}
+
+// Load AI settings
       if (data.ai_tone) {
         automationSettings.aiTone = data.ai_tone;
       }
