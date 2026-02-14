@@ -4317,7 +4317,7 @@ async function loadSmoobuMessages() {
             sentByVal === 'host' ||
             sentByVal === 'owner' ||
             senderVal === 'host' ||
-            senderVal === 'owner';
+            senderVal === 'owner' || hostByHistory;
           
           // Only check GUEST if NOT from host
           const isFromGuest = !isFromHost && (
@@ -13986,12 +13986,28 @@ function rememberSentMessage(reservationId, messageText) {
 
 function isLikelyHostByHistory(reservationId, messageText) {
   try {
-    const h = _psHash((messageText || '').trim());
-    const arr = getSentMessageHashes(reservationId);
-    // Only consider last 7 days
-    const cutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    return arr.some(x => x && x.h === h && (!x.t || x.t >= cutoff));
-  } catch (_) { return false; }
+    const normalized = (typeof __normalizeMsgText === 'function')
+      ? __normalizeMsgText(messageText || '')
+      : (messageText || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!normalized) return false;
+
+    // Prefer the newer cache (per reservation) if present
+    if (typeof __loadSentCache === 'function') {
+      const cache = __loadSentCache();
+      const hashes = (cache && cache[reservationId] && Array.isArray(cache[reservationId].hashes))
+        ? cache[reservationId].hashes
+        : [];
+      const h = (typeof __hashMsg === 'function') ? __hashMsg(normalized) : normalized;
+      return hashes.includes(h);
+    }
+
+    // Fallback to legacy storage (should rarely happen)
+    const h = (typeof _psHash === 'function') ? _psHash(normalized) : normalized;
+    const arr = (typeof getSentMessageHashes === 'function') ? getSentMessageHashes(reservationId) : [];
+    return Array.isArray(arr) && arr.includes(h);
+  } catch (e) {
+    return false;
+  }
 }
 
 // Send message via Smoobu API
