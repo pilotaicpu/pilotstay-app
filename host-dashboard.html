@@ -12500,25 +12500,115 @@ async function saveAutomationSettings() {
 
 async function loadAutomationSettings() {
   try {
-    const { data } = await db.from('profiles').select('*').eq('id', user.id).single();
-    if (data) {
-      // Load on/off settings
-      if (data.automation_smart_replies !== undefined && data.automation_smart_replies !== null) {
-        automationSettings.smartReplies = data.automation_smart_replies;
+    if (!db || !user || !user.id) return;
+
+    // =====================================================
+    // SINGLE SOURCE OF TRUTH:
+    // Prefer `automation_settings` (new system),
+    // fallback to legacy fields in `profiles`.
+    // Also keep localStorage cache in sync.
+    // =====================================================
+
+    // 1) Load from automation_settings (preferred)
+    const { data: aSet, error: aErr } = await db
+      .from('automation_settings')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    // 2) Load from profiles (legacy fallback + other user prefs)
+    const { data: проф, error: pErr } = await db
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // Helper: apply modes + persist cache
+    const applyMode = (feature, modeVal) => {
+      const norm = normalizeAutomationMode(feature, modeVal);
+      const key = `${feature}Mode`;
+      automationSettings[key] = norm;
+
+      // localStorage cache keys (used by ModeChecker refresh)
+      const lsKeyMap = {
+        smartReplies: 'smart_replies_mode',
+        reviewReplies: 'review_replies_mode',
+        autoPricing: 'auto_pricing_mode',
+        autoJobs: 'auto_jobs_mode'
+      };
+      const lsKey = lsKeyMap[feature];
+      if (lsKey) localStorage.setItem(lsKey, norm);
+    };
+
+    // Helper: apply enabled flags
+    const applyEnabled = (key, val) => {
+      if (val !== undefined && val !== null) automationSettings[key] = !!val;
+    };
+
+    // -----------------------------------------------------
+    // Apply settings from automation_settings (preferred)
+    // -----------------------------------------------------
+    if (aSet && !aErr) {
+      applyEnabled('smartReplies', aSet.smart_replies_enabled);
+      applyEnabled('reviewReplies', aSet.review_replies_enabled);
+      applyEnabled('autoPricing', aSet.auto_pricing_enabled);
+      applyEnabled('autoJobs', aSet.auto_jobs_enabled);
+
+      applyMode('smartReplies', aSet.smart_replies_mode);
+      // review replies supports only manual|hybrid (normalize handles it)
+      applyMode('reviewReplies', aSet.review_replies_mode);
+      // pricing supports manual|auto (normalize handles it)
+      applyMode('autoPricing', aSet.auto_pricing_mode);
+      applyMode('autoJobs', aSet.auto_jobs_mode);
+
+      if (aSet.ai_tone) automationSettings.aiTone = aSet.ai_tone;
+      if (aSet.ai_language) automationSettings.aiLanguage = aSet.ai_language;
+      if (aSet.ai_learning_enabled !== undefined && aSet.ai_learning_enabled !== null) {
+        automationSettings.aiLearning = !!aSet.ai_learning_enabled;
       }
-      if (data.automation_review_replies !== undefined && data.automation_review_replies !== null) {
-        automationSettings.reviewReplies = data.automation_review_replies;
+      if (aSet.pricing_strategy) automationSettings.pricingStrategy = aSet.pricing_strategy;
+    }
+
+    // -----------------------------------------------------
+    // Fallback: legacy profile fields ONLY if missing
+    // -----------------------------------------------------
+    if (проф && !pErr) {
+      // On/off legacy
+      if (automationSettings.smartReplies === undefined) applyEnabled('smartReplies', проф.automation_smart_replies);
+      if (automationSettings.reviewReplies === undefined) applyEnabled('reviewReplies', проф.automation_review_replies);
+      if (automationSettings.autoPricing === undefined) applyEnabled('autoPricing', проф.automation_pricing);
+      if (automationSettings.autoJobs === undefined) applyEnabled('autoJobs', проф.automation_jobs);
+
+      // Modes legacy
+      if (!automationSettings.smartRepliesMode) applyMode('smartReplies', проф.smart_replies_mode || 'manual');
+      if (!automationSettings.reviewRepliesMode) applyMode('reviewReplies', проф.review_replies_mode || 'manual');
+      if (!automationSettings.autoPricingMode) applyMode('autoPricing', проф.auto_pricing_mode || 'manual');
+      if (!automationSettings.autoJobsMode) applyMode('autoJobs', проф.auto_jobs_mode || 'manual');
+
+      // Other AI prefs
+      if (!automationSettings.aiTone && проф.ai_tone) automationSettings.aiTone = проф.ai_tone;
+      if (!automationSettings.aiLanguage && проф.ai_language) automationSettings.aiLanguage = проф.ai_language;
+      if (automationSettings.aiLearning === undefined && проф.ai_learning !== undefined && проф.ai_learning !== null) {
+        automationSettings.aiLearning = !!проф.ai_learning;
       }
-      if (data.automation_pricing !== undefined && data.automation_pricing !== null) {
-        automationSettings.autoPricing = data.automation_pricing;
+
+      // Smoobu key cache
+      if (проф.smoobu_api_key) {
+        smoobuConfig.apiKey = проф.smoobu_api_key;
+        localStorage.setItem('smoobu_api_key', проф.smoobu_api_key);
       }
-      if (data.automation_jobs !== undefined && data.automation_jobs !== null) {
-        automationSettings.autoJobs = data.automation_jobs;
+      if (проф.ai_context) {
+        aiContext = { ...aiContext, ...проф.ai_context };
       }
-      
-      // Load mode settings (normalize to avoid invalid/null state)
-if (data.smart_replies_mode !== undefined) {
-  automationSettings.smartRepliesMode = normalizeAutomationMode('smartReplies', data.smart_replies_mode);
+    }
+
+    // Sync cache + ModeChecker
+    automationSettings._version = Date.now();
+    try { await ModeChecker.refreshSettings(); } catch (e) {}
+
+  } catch (e) {
+    console.error('Failed to load automation settings:', e);
+  }
 }
 if (data.review_replies_mode !== undefined) {
   automationSettings.reviewRepliesMode = normalizeAutomationMode('reviewReplies', data.review_replies_mode);
