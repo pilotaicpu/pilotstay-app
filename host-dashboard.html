@@ -4296,7 +4296,7 @@ async function loadSmoobuMessages() {
           // Heuristic: If Smoobu does not provide direction/sender,
           // classify as HOST if message matches one we recently sent.
           const msgTextRaw = (msg.message || msg.messageBody || msg.text || msg.content || '');
-          const hostByHistory = isLikelyHostByHistory(booking.smoobu_id, msgTextRaw);
+          const hostByHistory = isLikelyHostByHistoryLegacy(booking.smoobu_id, msgTextRaw);
 
           
           // Smoobu type values: 1 = HostToGuest, 2 = GuestToHost
@@ -13972,7 +13972,7 @@ function getSentMessageHashes(reservationId) {
   } catch (_) { return []; }
 }
 
-function rememberSentMessage(reservationId, messageText) {
+function rememberSentMessageLegacy(reservationId, messageText) {
   try {
     const key = `pilotstay_sent_hashes_${reservationId}`;
     const arr = getSentMessageHashes(reservationId);
@@ -13984,7 +13984,7 @@ function rememberSentMessage(reservationId, messageText) {
   } catch (_) {}
 }
 
-function isLikelyHostByHistory(reservationId, messageText) {
+function isLikelyHostByHistoryLegacy(reservationId, messageText) {
   try {
     const normalized = (typeof __normalizeMsgText === 'function')
       ? __normalizeMsgText(messageText || '')
