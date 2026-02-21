@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PilotStay</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#09090b;color:#fafafa;min-height:100vh}
+
+/* Auth Overlay */
+.auth{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#09090b 0%,#1a1a2e 100%)}
+.auth::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f97316' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+.card{background:linear-gradient(145deg,#131316,#1a1a1f);padding:40px;border-radius:16px;width:400px;max-width:90vw;border:1px solid #27272a;box-shadow:0 25px 80px rgba(0,0,0,.5),0 0 40px rgba(249,115,22,0.1);position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#f97316,#8b5cf6,#f97316);background-size:200% 100%;animation:gradient 3s ease infinite}
+@keyframes gradient{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+/* Logo */
+.logo{text-align:center;margin-bottom:32px}
+.logo-icon{font-size:48px;margin-bottom:12px}
+.logo-text{font-size:28px;font-weight:700;background:linear-gradient(135deg,#f97316,#fb923c);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.logo-sub{font-size:12px;color:#71717a;margin-top:4px;letter-spacing:1px}
+
+/* Tabs */
+.tab{display:flex;gap:8px;margin-bottom:24px;background:#18181b;padding:6px;border-radius:10px}
+.tab button{flex:1;padding:12px 16px;background:transparent;border:none;color:#a1a1aa;cursor:pointer;border-radius:8px;font-size:14px;font-weight:600;transition:all .2s}
+.tab button:hover{color:#fafafa}
+.tab button.active{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;box-shadow:0 4px 12px rgba(249,115,22,0.3)}
+
+/* Inputs */
+.input{width:100%;padding:14px 16px;margin:8px 0;background:#18181b;border:1px solid #27272a;color:#fafafa;border-radius:8px;font-size:14px;transition:all .2s}
+.input:focus{outline:none;border-color:#f97316;box-shadow:0 0 0 3px rgba(249,115,22,0.1)}
+.input::placeholder{color:#52525b}
+
+/* Button */
+.btn{width:100%;padding:14px 20px;margin-top:16px;background:linear-gradient(135deg,#f97316,#ea580c);border:none;color:#fff;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(249,115,22,0.4)}
+.btn:active{transform:translateY(0)}
+
+/* Error */
+#err{min-height:20px;margin-top:16px;padding:10px;background:#ef444410;border-radius:8px;color:#ef4444;font-size:12px;text-align:center;display:none}
+#err:not(:empty){display:block}
+
+/* App */
+.app{display:none;min-height:100vh;padding:40px;max-width:600px;margin:0 auto}
+.app-header{text-align:center;margin-bottom:40px}
+.app-icon{font-size:64px;margin-bottom:16px}
+.app-title{font-size:24px;font-weight:700;color:#22c55e;margin-bottom:8px}
+.app-info{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:20px;margin-bottom:24px}
+.app-info p{padding:12px 0;border-bottom:1px solid #27272a;font-size:14px;display:flex;justify-content:space-between}
+.app-info p:last-child{border-bottom:none}
+.app-info span{color:#71717a}
+.app-info code{background:#27272a;padding:4px 8px;border-radius:4px;font-size:12px;word-break:break-all}
+.btn-logout{background:#27272a;color:#fafafa}
+.btn-logout:hover{background:#3f3f46;box-shadow:none;transform:none}
+</style>
+</head>
+<body>
+
+<div class="auth" id="auth">
+<div class="card">
+<div class="logo">
+<div class="logo-icon">✈️</div>
+<div class="logo-text">PilotStay</div>
+<div class="logo-sub">HOST DASHBOARD</div>
+</div>
+<div class="tab">
+<button id="tabLogin" class="active" onclick="showLogin()">Login</button>
+<button id="tabRegister" onclick="showRegister()">Registrieren</button>
+</div>
+<div id="loginBox">
+<input class="input" id="loginEmail" placeholder="E-Mail Adresse">
+<input class="input" id="loginPw" type="password" placeholder="Passwort">
+<button class="btn" onclick="login()">🚀 Einloggen</button>
+</div>
+<div id="regBox" style="display:none">
+<input class="input" id="regEmail" placeholder="E-Mail Adresse">
+<input class="input" id="regPw" type="password" placeholder="Passwort wählen">
+<button class="btn" onclick="register()">✨ Account erstellen</button>
+</div>
+<div id="err"></div>
+</div>
+</div>
+
+<div class="app" id="app">
+<div class="app-header">
+<div class="app-icon">✅</div>
+<div class="app-title">Dashboard geladen!</div>
+</div>
+<div class="app-info">
+<p><span>User ID:</span> <code id="uid">—</code></p>
+<p><span>Organization:</span> <code id="org">—</code></p>
+</div>
+<button class="btn btn-logout" onclick="logout()">🚪 Logout</button>
+</div>
+
+<script>
+const SUPABASE_URL = "https://wpazgwphsdhddjdgkrgt.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwYXpnd3Boc2RoZGRqZGdrcmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NTA3NzUsImV4cCI6MjA4NDIyNjc3NX0.1qdK_o7fhNJGT_wdWnHfBbITK0Dw1xIt5zBCI9-KT7I";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+function showLogin() {
+  loginBox.style.display = "block";
+  regBox.style.display = "none";
+  tabLogin.classList.add("active");
+  tabRegister.classList.remove("active");
+}
+
+function showRegister() {
+  loginBox.style.display = "none";
+  regBox.style.display = "block";
+  tabLogin.classList.remove("active");
+  tabRegister.classList.add("active");
+}
+
+async function login() {
+  err.innerText = "...";
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: loginEmail.value,
+    password: loginPw.value
+  });
+  if (error) { err.innerText = error.message; return; }
+  await bootstrap(data.user);
+}
+
+async function register() {
+  err.innerText = "...";
+  const { data, error } = await sb.auth.signUp({
+    email: regEmail.value,
+    password: regPw.value
+  });
+  if (error) { err.innerText = error.message; return; }
+  await bootstrap(data.user);
+}
+
+async function bootstrap(user) {
+  if (!user) { err.innerText = "Kein User"; return; }
+  let org_id = null;
+  
+  try {
+    const candidates = ["org_members", "org_memberships", "org_users"];
+    for (const t of candidates) {
+      const res = await sb.from(t).select("org_id").eq("user_id", user.id).limit(1);
+      if (!res.error && res.data && res.data.length > 0) {
+        org_id = res.data[0].org_id;
+        break;
+      }
+      if (res.error && String(res.error.message || '').includes('does not exist')) continue;
+    }
+  } catch (_e) { /* ignore */ }
+
+  localStorage.setItem("org_id", org_id ?? "");
+  auth.style.display = "none";
+  app.style.display = "block";
+  uid.innerText = user.id;
+  org.innerText = org_id ?? "(none)";
+}
+
+async function logout() {
+  await sb.auth.signOut();
+  location.reload();
+}
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { bootstrap(session.user); }
+})();
+</script>
+
+</body>
+</html>
