@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PilotStay</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body{margin:0;font-family:Arial;background:#09090b;color:#fafafa}
+.auth{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000000cc}
+.card{background:#131316;padding:28px;border-radius:12px;width:360px}
+.input{width:100%;padding:12px;margin:6px 0;background:#18181b;border:1px solid #27272a;color:#fff;border-radius:6px}
+.btn{width:100%;padding:12px;margin-top:10px;background:#f97316;border:none;color:#fff;border-radius:6px;cursor:pointer}
+.tab{display:flex;gap:10px;margin-bottom:10px}
+.tab button{flex:1;padding:10px;background:#27272a;border:none;color:#fff;cursor:pointer}
+.app{display:none;padding:30px}
+</style>
+</head>
+<body>
+
+<div class="auth" id="auth">
+<div class="card">
+<div class="tab">
+<button onclick="showLogin()">Login</button>
+<button onclick="showRegister()">Register</button>
+</div>
+<div id="loginBox">
+<input class="input" id="loginEmail" placeholder="Email">
+<input class="input" id="loginPw" type="password" placeholder="Passwort">
+<button class="btn" onclick="login()">Einloggen</button>
+</div>
+<div id="regBox" style="display:none">
+<input class="input" id="regEmail" placeholder="Email">
+<input class="input" id="regPw" type="password" placeholder="Passwort">
+<button class="btn" onclick="register()">Registrieren</button>
+</div>
+<div id="err" style="color:red;font-size:12px"></div>
+</div>
+</div>
+
+<div class="app" id="app">
+<h2>Dashboard geladen ✅</h2>
+<p id="uid"></p>
+<p id="org"></p>
+<button class="btn" onclick="logout()">Logout</button>
+</div>
+
+<script>
+const SUPABASE_URL = "https://REPLACE.supabase.co";
+const SUPABASE_ANON = "REPLACE_PUBLIC_ANON_KEY";
+const sb = supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
+
+function showLogin(){loginBox.style.display="block";regBox.style.display="none"}
+function showRegister(){loginBox.style.display="none";regBox.style.display="block"}
+
+async function login(){
+err.innerText="...";
+const {data,error}=await sb.auth.signInWithPassword({
+email:loginEmail.value,
+password:loginPw.value
+});
+if(error){err.innerText=error.message;return}
+await bootstrap(data.user);
+}
+
+async function register(){
+err.innerText="...";
+const {data,error}=await sb.auth.signUp({
+email:regEmail.value,
+password:regPw.value
+});
+if(error){err.innerText=error.message;return}
+await bootstrap(data.user);
+}
+
+async function bootstrap(user){
+if(!user){err.innerText="Kein User";return}
+const {data:orgs}=await sb.from("org_memberships").select("org_id").eq("user_id",user.id).limit(1);
+let org_id=null;
+if(orgs && orgs.length>0){org_id=orgs[0].org_id}
+else{
+const {data:newOrg}=await sb.from("orgs").insert({name:"Default Org"}).select().single();
+await sb.from("org_memberships").insert({user_id:user.id,org_id:newOrg.id,role:"owner"});
+org_id=newOrg.id;
+}
+localStorage.setItem("org_id",org_id);
+auth.style.display="none";
+app.style.display="block";
+uid.innerText="User: "+user.id;
+org.innerText="Org: "+org_id;
+}
+
+async function logout(){
+await sb.auth.signOut();
+location.reload();
+}
+
+(async()=>{
+const {data:{session}}=await sb.auth.getSession();
+if(session){bootstrap(session.user)}
+})();
+</script>
+
+</body>
+</html>
