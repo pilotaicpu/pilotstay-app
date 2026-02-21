@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PilotStay - Host Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#09090b;color:#fafafa;min-height:100vh}
+.loading-screen{position:fixed;inset:0;background:#09090b;display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:16px}
+.spinner{width:48px;height:48px;border:3px solid #27272a;border-top-color:#f97316;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.pulse{animation:pulse 2s infinite}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Tutorial - Interactive Spotlight with Agent Avatar */
+#tutorial-overlay{position:fixed;inset:0;z-index:5000}
+#tutorial-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:5001;transition:background .3s}
+#tutorial-backdrop.active{background:rgba(0,0,0,.55)}
+#tutorial-spotlight{position:absolute;z-index:5002;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.6), 0 0 0 4px rgba(139,92,246,0.8), 0 0 30px rgba(139,92,246,.6), 0 0 60px rgba(139,92,246,.3);transition:all .4s ease;pointer-events:none;background:rgba(255,255,255,0.03)}
+#tutorial-tooltip{position:fixed;z-index:5003;background:linear-gradient(145deg,#1a1a1f,#131316);border:1px solid rgba(139,92,246,0.5);border-radius:12px;padding:0;width:420px;max-width:90vw;animation:tutorialFadeIn .4s ease;box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 40px rgba(139,92,246,0.15);overflow:hidden}
+#tutorial-tooltip::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#8b5cf6,#f97316,#8b5cf6);background-size:200% 100%;animation:gradientMove 3s ease infinite}
+@keyframes gradientMove{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.tutorial-agent-header{display:flex;align-items:center;gap:14px;padding:20px 24px;background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(249,115,22,0.05));border-bottom:1px solid #27272a}
+.tutorial-agent-avatar{width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:0 4px 16px rgba(139,92,246,0.4);animation:avatarPulse 2s ease-in-out infinite;flex-shrink:0}
+@keyframes avatarPulse{0%,100%{box-shadow:0 4px 16px rgba(139,92,246,0.4)}50%{box-shadow:0 4px 24px rgba(139,92,246,0.6),0 0 30px rgba(139,92,246,0.3)}}
+.tutorial-agent-info{flex:1}
+.tutorial-agent-name{font-size:15px;font-weight:700;color:#fafafa;display:flex;align-items:center;gap:8px}
+.tutorial-agent-badge{font-size:9px;padding:3px 8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);border-radius:4px;text-transform:uppercase;letter-spacing:0.5px}
+.tutorial-agent-status{font-size:11px;color:#a1a1aa;margin-top:3px;display:flex;align-items:center;gap:6px}
+.tutorial-agent-status::before{content:'';width:7px;height:7px;background:#22c55e;border-radius:50%;animation:statusBlink 2s ease infinite}
+@keyframes statusBlink{0%,100%{opacity:1}50%{opacity:0.5}}
+.tutorial-content{padding:20px 24px}
+.tutorial-desc.typing .typing-cursor{display:inline-block;width:2px;height:14px;background:#8b5cf6;margin-left:2px;animation:cursorBlink .8s infinite}
+@keyframes cursorBlink{0%,50%{opacity:1}51%,100%{opacity:0}}
+.tutorial-actions.hidden{opacity:0;pointer-events:none}
+.tutorial-actions{transition:opacity .3s ease}
+@keyframes tutorialFadeIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes tutorialPulse{0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,.6), 0 0 0 4px rgba(139,92,246,0.8), 0 0 30px rgba(139,92,246,.6)}50%{box-shadow:0 0 0 9999px rgba(0,0,0,.6), 0 0 0 6px rgba(139,92,246,1), 0 0 50px rgba(139,92,246,.8)}}
+#tutorial-spotlight.pulse{animation:tutorialPulse 2s infinite}
+#tutorial-arrow{position:absolute;width:0;height:0;border:10px solid transparent}
+#tutorial-arrow.left{right:100%;top:50px;border-right-color:rgba(139,92,246,0.5)}
+#tutorial-arrow.right{left:100%;top:50px;border-left-color:rgba(139,92,246,0.5)}
+#tutorial-arrow.top{bottom:100%;left:24px;border-bottom-color:rgba(139,92,246,0.5)}
+#tutorial-arrow.bottom{top:100%;left:24px;border-top-color:rgba(139,92,246,0.5)}
+#tutorial-arrow.hidden{display:none}
+.tutorial-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.tutorial-icon{font-size:28px;line-height:1;background:linear-gradient(135deg,#27272a,#1f1f23);padding:10px;border-radius:8px}
+.tutorial-step-label{font-size:10px;color:#8b5cf6;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+.tutorial-title{font-size:17px;font-weight:700;margin-bottom:10px;color:#fafafa;line-height:1.3}
+.tutorial-desc{color:#d4d4d8;font-size:13px;line-height:1.7;margin-bottom:20px}
+.tutorial-desc strong{color:#f97316;font-weight:600}
+.tutorial-desc br{display:block;margin:8px 0}
+/* Progress Bar */
+.tutorial-progress{margin-bottom:18px}
+.tutorial-progress-bar{width:100%;height:6px;background:#27272a;border-radius:3px;overflow:hidden}
+.tutorial-progress-fill{height:100%;background:linear-gradient(90deg,#8b5cf6,#a78bfa);border-radius:3px;transition:width .4s ease;box-shadow:0 0 10px rgba(139,92,246,0.5)}
+.tutorial-progress-text{font-size:11px;color:#71717a;text-align:center;margin-top:6px}
+.tutorial-actions{display:flex;gap:10px;align-items:center;padding-top:6px;border-top:1px solid #27272a}
+.tutorial-skip{background:none;border:none;color:#71717a;font-size:12px;cursor:pointer;padding:10px 16px;transition:all .2s;border-radius:6px}
+.tutorial-skip:hover{color:#fafafa;background:#27272a}
+.tutorial-next{flex:1;padding:14px 24px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);border:none;border-radius:8px;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.tutorial-next:hover{transform:scale(1.02);box-shadow:0 6px 20px rgba(139,92,246,.4)}
+.tutorial-next::after{content:'';display:inline-block;width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:6px solid #fff;margin-left:4px}
+.tutorial-highlight{position:relative;z-index:5002;box-shadow:0 0 0 3px rgba(139,92,246,0.6),0 0 20px rgba(139,92,246,0.4),0 0 40px rgba(139,92,246,0.2);border-radius:8px;animation:tutorial-pulse 1.5s ease-in-out infinite}
+@keyframes tutorial-pulse{0%,100%{box-shadow:0 0 0 3px rgba(139,92,246,0.6),0 0 20px rgba(139,92,246,0.4),0 0 40px rgba(139,92,246,0.2)}50%{box-shadow:0 0 0 5px rgba(139,92,246,0.8),0 0 30px rgba(139,92,246,0.5),0 0 50px rgba(139,92,246,0.3)}}
+.tutorial-typing{display:inline-flex;gap:4px;padding:4px 0}
+.tutorial-typing span{width:6px;height:6px;background:#8b5cf6;border-radius:50%;animation:typing 1.4s infinite both}
+.tutorial-typing span:nth-child(2){animation-delay:0.2s}
+.tutorial-typing span:nth-child(3){animation-delay:0.4s}
+@keyframes typing{0%,80%,100%{transform:scale(0.6);opacity:0.5}40%{transform:scale(1);opacity:1}}
+
+/* Sidebar */
+.sidebar{width:260px;background:#131316;border-right:1px solid #27272a;position:fixed;height:100vh;display:flex;flex-direction:column;z-index:100}
+.sidebar-header{height:auto;padding:20px 16px 24px;border-bottom:1px solid #27272a;display:flex;align-items:center;justify-content:center}
+.sidebar-logo{width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;background:#18181b}
+.sidebar-title{font-weight:700;font-size:18px}
+.sidebar-sub{font-size:11px;color:#f97316}
+.nav{flex:1;padding:16px;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none}
+.nav::-webkit-scrollbar{display:none}
+.nav-section{font-size:10px;color:#52525b;text-transform:uppercase;letter-spacing:1px;padding:12px 14px 8px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:6px;cursor:pointer;color:#a1a1aa;margin-bottom:4px;transition:all .2s;font-size:13px;position:relative}
+.nav-item:hover{background:#1f1f23;color:#fafafa}
+.nav-item.active{background:#f9731620;color:#f97316}
+.nav-icon{font-size:18px;width:24px;text-align:center}
+.nav-badge{position:absolute;right:12px;min-width:20px;height:20px;background:#ef4444;border-radius:4px;font-size:10px;color:#fff;display:flex;align-items:center;justify-content:center}
+.user-section{padding:16px;border-top:1px solid #27272a}
+.user-card{display:flex;align-items:center;gap:12px;padding:12px;background:#18181b;border-radius:8px;margin-bottom:12px}
+.user-avatar{width:40px;height:40px;background:linear-gradient(135deg,#f97316,#fb923c);border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.user-name{font-size:14px;font-weight:600}
+.user-plan{font-size:11px;color:#a1a1aa}
+.logout-btn{width:100%;padding:10px;background:#27272a;border:none;border-radius:6px;color:#a1a1aa;font-size:12px;cursor:pointer}
+.logout-btn:hover{background:#3f3f46;color:#fafafa}
+
+/* Main */
+.main{margin-left:260px;min-height:100vh}
+.header{padding:24px 32px;border-bottom:1px solid #27272a;display:flex;justify-content:space-between;align-items:center;background:#09090b;position:sticky;top:0;z-index:50}
+.header-title{font-size:24px;font-weight:700}
+.header-subtitle{color:#71717a;font-size:13px;margin-top:4px}
+.content{padding:32px}
+
+/* Stats Grid */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:28px}
+.stat-card{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:20px}
+.stat-icon{font-size:24px;margin-bottom:12px}
+.stat-value{font-size:28px;font-weight:700}
+.stat-label{font-size:12px;color:#71717a;margin-top:4px}
+.stat-change{font-size:11px;margin-top:8px;padding:4px 8px;border-radius:4px;display:inline-block}
+.stat-change.positive{background:#22c55e20;color:#22c55e}
+.stat-change.negative{background:#ef444420;color:#ef4444}
+
+/* Cards */
+.card{background:#18181b;border:1px solid #27272a;border-radius:12px;overflow:hidden}
+.card-header{padding:20px;border-bottom:1px solid #27272a;display:flex;justify-content:space-between;align-items:center}
+.card-title{font-weight:600;font-size:15px}
+.card-subtitle{font-size:12px;color:#71717a}
+.card-content{padding:20px}
+.card-footer{padding:16px 20px;border-top:1px solid #27272a;background:#131316}
+
+/* Grid Layouts */
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+
+/* Buttons */
+.btn{padding:12px 20px;border-radius:6px;font-size:13px;font-weight:600;border:none;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:#f97316;color:#fff}
+.btn-primary:hover{background:#ea580c}
+.btn-secondary{background:#27272a;color:#fafafa;border:1px solid #3f3f46}
+.btn-ai{background:linear-gradient(135deg,#8b5cf6,#a78bfa);color:#fff}
+.btn-sm{padding:8px 14px;font-size:12px}
+
+/* Inputs */
+.input{width:100%;padding:14px 16px;background:#18181b;border:1px solid #27272a;border-radius:6px;color:#fafafa;font-size:14px;transition:all .2s}
+.input:focus{outline:none;border-color:#f97316}
+.input::placeholder{color:#52525b}
+
+/* Tags */
+.tag{padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600}
+.tag-green{background:#22c55e20;color:#22c55e}
+.tag-orange{background:#f9731620;color:#f97316}
+.tag-blue{background:#3b82f620;color:#3b82f6}
+.tag-purple{background:#8b5cf620;color:#8b5cf6}
+.tag-red{background:#ef444420;color:#ef4444}
+
+/* Chat/Messages */
+.messages-container{display:flex;gap:20px;height:calc(100vh - 220px);min-height:500px}
+.chat-list{width:340px;min-width:340px;background:#18181b;border-radius:12px;border:1px solid #27272a;display:flex;flex-direction:column;overflow:hidden}
+.chat-list-header{padding:16px 20px;border-bottom:1px solid #27272a;display:flex;justify-content:space-between;align-items:center}
+.chat-list-title{font-weight:600;font-size:14px}
+.chat-list-items{flex:1;overflow-y:auto}
+.chat-item{display:flex;align-items:center;gap:12px;padding:16px 20px;cursor:pointer;border-bottom:1px solid #27272a20;transition:all .2s}
+.chat-item:hover{background:#1f1f23}
+.chat-item.active{background:#1f1f23;border-left:3px solid #f97316}
+.chat-avatar{width:44px;height:44px;border-radius:8px;background:linear-gradient(135deg,#f97316,#fb923c);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+.chat-preview{flex:1;min-width:0}
+.chat-name{font-weight:600;font-size:13px;margin-bottom:2px}
+.chat-property{font-size:11px;color:#71717a;margin-bottom:4px}
+.chat-last{font-size:12px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.chat-time{font-size:10px;color:#52525b}
+.chat-badge{min-width:20px;height:20px;background:#f97316;border-radius:4px;font-size:10px;color:#fff;display:flex;align-items:center;justify-content:center}
+
+.chat-window{flex:1;background:#18181b;border-radius:12px;border:1px solid #27272a;display:flex;flex-direction:column;overflow:hidden}
+.chat-header{padding:16px 20px;border-bottom:1px solid #27272a;display:flex;align-items:center;gap:12px}
+.chat-header-info{flex:1}
+.chat-header-name{font-weight:600;font-size:15px}
+.chat-header-meta{font-size:12px;color:#71717a;margin-top:2px}
+.chat-messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+.message{max-width:75%;display:flex;flex-direction:column}
+.message.sent{align-self:flex-end;align-items:flex-end}
+.message.received{align-self:flex-start;align-items:flex-start}
+.message-sender{font-size:10px;font-weight:600;margin-bottom:4px;padding:0 4px}
+.message.sent .message-sender{color:#f97316}
+.message.received .message-sender{color:#22c55e}
+.message-bubble{padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;word-wrap:break-word}
+.message.sent .message-bubble{background:linear-gradient(135deg,#f97316,#fb923c);color:#fff;border-bottom-right-radius:4px}
+.message.received .message-bubble{background:#27272a;color:#fafafa;border-bottom-left-radius:4px}
+.message-time{font-size:10px;color:#52525b;margin-top:4px;padding:0 4px}
+.chat-input-area{padding:16px 20px;border-top:1px solid #27272a;display:flex;gap:12px}
+.chat-input-area input{flex:1}
+
+/* Empty States */
+.empty-state{text-align:center;padding:60px 20px;color:#71717a}
+.empty-icon{font-size:56px;margin-bottom:16px}
+.empty-title{font-size:16px;font-weight:600;color:#fafafa;margin-bottom:8px}
+.empty-desc{font-size:13px;margin-bottom:20px}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal{background:#131316;border:1px solid #27272a;border-radius:12px;padding:28px;width:100%;max-width:500px;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+
+/* Auth Overlay */
+.auth-overlay{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px}
+.auth-card{max-width:420px;width:100%;background:#131316;border:1px solid #27272a;border-radius:16px;padding:32px}
+.auth-header{text-align:center;margin-bottom:24px}
+.auth-logo{font-size:48px;margin-bottom:12px}
+.auth-title{font-size:24px;font-weight:700}
+.auth-subtitle{font-size:13px;color:#71717a;margin-top:8px}
+.auth-form{display:flex;flex-direction:column;gap:16px}
+.auth-error{font-size:12px;color:#ef4444;padding:12px;background:#ef444410;border-radius:8px;display:none}
+
+/* View containers */
+.view{display:none}
+.view.active{display:block}
+
+/* Responsive */
+@media(max-width:1200px){.stats-grid{grid-template-columns:repeat(2,1fr)}.messages-container{flex-direction:column}.chat-list{width:100%;min-width:auto;max-height:300px}}
+@media(max-width:900px){.grid-2,.grid-3{grid-template-columns:1fr}}
+@media(max-width:768px){.sidebar{display:none}.main{margin-left:0}}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div class="loading-screen" id="loading">
+  <div class="spinner"></div>
+  <div style="color:#71717a">PilotStay wird geladen...</div>
+</div>
+
+<!-- Auth Overlay -->
+<div class="auth-overlay" id="authOverlay" style="display:none">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-logo">✈️</div>
+      <div class="auth-title">PilotStay</div>
+      <div class="auth-subtitle" id="authStatus">Bitte einloggen</div>
+    </div>
+    <div class="auth-form">
+      <input class="input" id="authEmail" placeholder="E-Mail" autocomplete="username">
+      <input class="input" id="authPassword" type="password" placeholder="Passwort" autocomplete="current-password">
+      <input class="input" id="authOrgId" placeholder="org_id (optional)">
+      <button class="btn btn-primary" id="authLoginBtn" style="width:100%;justify-content:center">Einloggen</button>
+      <div class="auth-error" id="authError"></div>
+    </div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" style="display:none">
+  
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="https://i.ibb.co/hRW1wx61/Whats-App-Image-2026-02-09-at-01-00-50-removebg-preview.png" alt="PilotStay" style="width:75%;max-width:195px;height:auto;object-fit:contain;display:block" onerror="this.style.display='none';this.parentElement.innerHTML='<div style=&quot;font-size:24px;font-weight:700&quot;>✈️ PilotStay</div>'">
+    </div>
+    
+    <nav class="nav">
+      <div class="nav-section">Hauptmenü</div>
+      <div class="nav-item active" data-view="conversations">
+        <span class="nav-icon">💬</span>Nachrichten
+      </div>
+      <div class="nav-item" data-view="properties">
+        <span class="nav-icon">🏠</span>Objekte
+      </div>
+      <div class="nav-item" data-view="bookings">
+        <span class="nav-icon">📅</span>Buchungen
+      </div>
+      
+      <div class="nav-section">System</div>
+      <div class="nav-item" data-view="tutorial">
+        <span class="nav-icon">🎓</span>Tutorial
+      </div>
+      <div class="nav-item" data-view="settings">
+        <span class="nav-icon">⚙️</span>Einstellungen
+      </div>
+    </nav>
+    
+    <div class="user-section">
+      <div class="user-card">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div>
+          <div class="user-name" id="userName">Laden...</div>
+          <div class="user-plan" id="userPlan">—</div>
+        </div>
+      </div>
+      <button class="logout-btn" id="logoutBtn">🚪 Abmelden</button>
+    </div>
+  </aside>
+  
+  <!-- Main -->
+  <main class="main">
+    <div class="header">
+      <div>
+        <div class="header-title" id="pageTitle">Nachrichten</div>
+        <div class="header-subtitle" id="pageSubtitle">Gästekommunikation</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn btn-secondary btn-sm" id="refreshBtn">🔄 Aktualisieren</button>
+      </div>
+    </div>
+    
+    <div class="content">
+      
+      <!-- Conversations View -->
+      <div id="view-conversations" class="view active">
+        <div class="messages-container">
+          <div class="chat-list">
+            <div class="chat-list-header">
+              <div class="chat-list-title">Posteingang</div>
+              <div id="convMeta" style="font-size:12px;color:#71717a">—</div>
+            </div>
+            <div class="chat-list-items" id="convList">
+              <div class="empty-state">
+                <div class="empty-icon">💬</div>
+                <div class="empty-title">Lade Nachrichten...</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="chat-window">
+            <div class="chat-header">
+              <div class="chat-avatar">?</div>
+              <div class="chat-header-info">
+                <div class="chat-header-name">Wähle eine Konversation</div>
+                <div class="chat-header-meta" id="convDetailMeta">—</div>
+              </div>
+            </div>
+            <div class="chat-messages" id="messages">
+              <div class="empty-state">
+                <div class="empty-icon">👈</div>
+                <div class="empty-title">Keine Konversation ausgewählt</div>
+                <div class="empty-desc">Wähle links eine Konversation aus</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Properties View -->
+      <div id="view-properties" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏠 Objekte</div>
+            <div class="card-subtitle">Deine Unterkünfte</div>
+          </div>
+          <div class="card-content">
+            <pre id="propertiesOut" style="white-space:pre-wrap;font-size:12px;background:#09090b;padding:16px;border-radius:8px;overflow-x:auto"></pre>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Bookings View -->
+      <div id="view-bookings" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📅 Buchungen</div>
+            <div class="card-subtitle">Reservierungen</div>
+          </div>
+          <div class="card-content">
+            <pre id="bookingsOut" style="white-space:pre-wrap;font-size:12px;background:#09090b;padding:16px;border-radius:8px;overflow-x:auto"></pre>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tutorial View -->
+      <div id="view-tutorial" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🎓 Tutorial</div>
+            <div class="card-subtitle">So funktioniert PilotStay</div>
+          </div>
+          <div class="card-content">
+            <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:24px">
+              <div class="tutorial-agent-avatar" style="animation:none">🤖</div>
+              <div>
+                <div style="font-weight:600;margin-bottom:8px">Autonomous Agent</div>
+                <div style="color:#a1a1aa;line-height:1.6">
+                  Ich bin dein KI-Assistent und helfe dir bei der Verwaltung deiner Unterkünfte. 
+                  Diese Slim-Version nutzt das neue Backend-API für alle Daten.
+                </div>
+              </div>
+            </div>
+            
+            <div style="background:#27272a;border-radius:8px;padding:20px;margin-bottom:16px">
+              <div style="font-weight:600;margin-bottom:12px">API-Endpunkte:</div>
+              <ul style="list-style:none;display:flex;flex-direction:column;gap:8px">
+                <li><code style="background:#18181b;padding:4px 8px;border-radius:4px">/conversations</code> — Nachrichten</li>
+                <li><code style="background:#18181b;padding:4px 8px;border-radius:4px">/properties</code> — Objekte</li>
+                <li><code style="background:#18181b;padding:4px 8px;border-radius:4px">/bookings</code> — Buchungen</li>
+              </ul>
+            </div>
+            
+            <div style="font-size:13px;color:#71717a">
+              Alle Business-Logik läuft server-side über die Edge Function <strong>api-dashboard</strong>.
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Settings View -->
+      <div id="view-settings" class="view">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">⚙️ Einstellungen</div>
+            <div class="card-subtitle">Verbindung & Konfiguration</div>
+          </div>
+          <div class="card-content">
+            <div style="display:flex;flex-direction:column;gap:16px;max-width:500px">
+              <div>
+                <label style="display:block;font-size:12px;color:#71717a;margin-bottom:8px">SUPABASE_URL</label>
+                <input class="input" id="setSupabaseUrl" placeholder="https://xxxx.supabase.co">
+              </div>
+              <div>
+                <label style="display:block;font-size:12px;color:#71717a;margin-bottom:8px">SUPABASE_ANON_KEY</label>
+                <input class="input" id="setSupabaseAnon" placeholder="eyJhbGciOi...">
+              </div>
+              <div>
+                <label style="display:block;font-size:12px;color:#71717a;margin-bottom:8px">ORG_ID</label>
+                <input class="input" id="setOrgId" placeholder="uuid">
+              </div>
+              
+              <div style="display:flex;gap:12px;margin-top:8px">
+                <button class="btn btn-primary" id="saveSettingsBtn">💾 Speichern</button>
+                <button class="btn btn-secondary" id="systemCheckBtn">🔍 System Check</button>
+              </div>
+              
+              <pre id="settingsOut" style="white-space:pre-wrap;font-size:12px;background:#09090b;padding:16px;border-radius:8px;margin-top:12px"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  // ========== Storage keys ==========
+  const K_URL = "pilotstay_supabase_url";
+  const K_ANON = "pilotstay_supabase_anon";
+  const K_ORG = "pilotstay_org_id";
+
+  // ========== Config ==========
+  function getCfg() {
+    return {
+      url: localStorage.getItem(K_URL) || "",
+      anon: localStorage.getItem(K_ANON) || "",
+      org: localStorage.getItem(K_ORG) || ""
+    };
+  }
+
+  function setCfg({url, anon, org}) {
+    if (url !== undefined) localStorage.setItem(K_URL, url);
+    if (anon !== undefined) localStorage.setItem(K_ANON, anon);
+    if (org !== undefined) localStorage.setItem(K_ORG, org);
+  }
+
+  let supa = null;
+
+  function ensureSupabase() {
+    const cfg = getCfg();
+    if (!cfg.url || !cfg.anon) {
+      throw new Error("Missing SUPABASE_URL / SUPABASE_ANON_KEY. Öffne Settings und trage sie ein.");
+    }
+    if (!supa || supa.__url !== cfg.url || supa.__anon !== cfg.anon) {
+      supa = window.supabase.createClient(cfg.url, cfg.anon);
+      supa.__url = cfg.url;
+      supa.__anon = cfg.anon;
+    }
+    return supa;
+  }
+
+  // ========== UI Helpers ==========
+  const qs = (s) => document.querySelector(s);
+  const qsa = (s) => Array.from(document.querySelectorAll(s));
+
+  function showView(name) {
+    qsa(".view").forEach(v => v.classList.remove("active"));
+    const el = qs("#view-" + name);
+    if (el) el.classList.add("active");
+    qsa(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.view === name));
+
+    const titles = {
+      conversations: ["Nachrichten", "Gästekommunikation"],
+      properties: ["Objekte", "Deine Unterkünfte"],
+      bookings: ["Buchungen", "Reservierungen"],
+      tutorial: ["Tutorial", "So funktioniert PilotStay"],
+      settings: ["Einstellungen", "Verbindung & Konfiguration"]
+    };
+    const t = titles[name] || ["Dashboard", ""];
+    qs("#pageTitle").textContent = t[0];
+    qs("#pageSubtitle").textContent = t[1];
+  }
+
+  function setAuthUI({userEmail, orgId}) {
+    const avatar = qs("#userAvatar");
+    const name = qs("#userName");
+    const plan = qs("#userPlan");
+    
+    if (userEmail) {
+      avatar.textContent = userEmail.charAt(0).toUpperCase();
+      name.textContent = userEmail.split('@')[0];
+      plan.textContent = orgId ? `org: ${orgId.substring(0,8)}...` : "—";
+    } else {
+      avatar.textContent = "?";
+      name.textContent = "Nicht eingeloggt";
+      plan.textContent = "—";
+    }
+  }
+
+  // ========== Auth Overlay ==========
+  function showAuthOverlay(msg) {
+    qs("#authOverlay").style.display = "flex";
+    qs("#authStatus").textContent = msg || "Bitte einloggen";
+    qs("#authError").style.display = "none";
+    qs("#authOrgId").value = getCfg().org || "";
+    qs("#loading").style.display = "none";
+  }
+
+  function hideAuthOverlay() {
+    qs("#authOverlay").style.display = "none";
+    qs("#app").style.display = "block";
+    qs("#loading").style.display = "none";
+  }
+
+  async function login(email, password, orgIdOptional) {
+    const sb = ensureSupabase();
+    const btn = qs("#authLoginBtn");
+    btn.disabled = true;
+    qs("#authStatus").textContent = "Einloggen...";
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      if (orgIdOptional) setCfg({ org: orgIdOptional });
+      hideAuthOverlay();
+      await boot();
+    } catch (e) {
+      qs("#authError").style.display = "block";
+      qs("#authError").textContent = String(e?.message || e);
+      qs("#authStatus").textContent = "Fehler beim Einloggen";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function logout() {
+    try {
+      const sb = ensureSupabase();
+      await sb.auth.signOut();
+    } catch (_) {}
+    qs("#app").style.display = "none";
+    showAuthOverlay("Bitte einloggen");
+  }
+
+  // ========== API Calls ==========
+  function apiBase() {
+    const sb = ensureSupabase();
+    return sb.__url + "/functions/v1/api-dashboard";
+  }
+
+  async function apiGet(path, params={}) {
+    const sb = ensureSupabase();
+    const cfg = getCfg();
+    const { data: sess } = await sb.auth.getSession();
+    const token = sess?.session?.access_token;
+    if (!token) throw new Error("No session. Bitte neu einloggen.");
+
+    const u = new URL(apiBase() + path);
+    const orgId = cfg.org || "";
+    if (orgId) u.searchParams.set("org_id", orgId);
+
+    Object.entries(params || {}).forEach(([k,v]) => {
+      if (v === null || v === undefined || v === "") return;
+      u.searchParams.set(k, String(v));
+    });
+
+    const res = await fetch(u.toString(), {
+      method: "GET",
+      headers: {
+        "authorization": "Bearer " + token,
+        "accept": "application/json"
+      }
+    });
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { json = { ok:false, raw:text }; }
+    if (!res.ok || json?.ok === false) {
+      const msg = json?.error || ("HTTP " + res.status);
+      throw new Error(msg);
+    }
+    return json;
+  }
+
+  // ========== Render Functions ==========
+  function renderConversations(items) {
+    const host = qs("#convList");
+    host.innerHTML = "";
+    if (!items || items.length === 0) {
+      host.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <div class="empty-title">Keine Nachrichten</div>
+          <div class="empty-desc">Noch keine Konversationen vorhanden</div>
+        </div>
+      `;
+      return;
+    }
+
+    for (const it of items) {
+      const div = document.createElement("div");
+      div.className = "chat-item";
+      
+      const initials = (it.guest_name || "G").substring(0,2).toUpperCase();
+      const guestName = it.guest_name || "Gast";
+      const propertyName = it.property_name || "Property";
+      const preview = it.last_message_preview || "Keine Vorschau";
+      const dates = `${it.start_date || "—"} → ${it.end_date || "—"}`;
+      const needsReply = it.reply_needed;
+
+      div.innerHTML = `
+        <div class="chat-avatar">${initials}</div>
+        <div class="chat-preview">
+          <div class="chat-name">${escapeHtml(guestName)}</div>
+          <div class="chat-property">${escapeHtml(propertyName)} • ${escapeHtml(dates)}</div>
+          <div class="chat-last">${escapeHtml(preview)}</div>
+        </div>
+        <div class="chat-meta">
+          <div class="chat-time">#${it.smoobu_booking_id}</div>
+          ${needsReply ? '<div class="chat-badge">!</div>' : ''}
+        </div>
+      `;
+
+      div.addEventListener("click", () => {
+        qsa(".chat-item").forEach(c => c.classList.remove("active"));
+        div.classList.add("active");
+        loadConversationDetail(it.smoobu_booking_id);
+      });
+      host.appendChild(div);
+    }
+  }
+
+  function renderMessages(messages, meta) {
+    const host = qs("#messages");
+    host.innerHTML = "";
+    
+    if (!messages || messages.length === 0) {
+      host.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">💬</div>
+          <div class="empty-title">Keine Nachrichten</div>
+          <div class="empty-desc">Diese Konversation hat noch keine Nachrichten</div>
+        </div>
+      `;
+      return;
+    }
+    
+    for (const m of messages) {
+      const role = (m.sender_role || "unknown").toString().toLowerCase();
+      const isHost = role === "host";
+      
+      const bubble = document.createElement("div");
+      bubble.className = `message ${isHost ? 'sent' : 'received'}`;
+      
+      bubble.innerHTML = `
+        <div class="message-sender">${isHost ? 'Du' : 'Gast'}</div>
+        <div class="message-bubble">${escapeHtml(m.body || m.message || "")}</div>
+        <div class="message-time">${escapeHtml(m.sent_at_remote || "")}</div>
+      `;
+      host.appendChild(bubble);
+    }
+    host.scrollTop = host.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return (s ?? "").toString()
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  // ========== Data Loaders ==========
+  async function loadConversations() {
+    try {
+      const res = await apiGet("/conversations", {
+        limit: 20,
+        offset: 0,
+        include: "messages_preview"
+      });
+      qs("#convMeta").textContent = `${res.page?.returned ?? 0} Konversationen`;
+      renderConversations(res.items || []);
+    } catch (e) {
+      qs("#convList").innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚠️</div>
+          <div class="empty-title">Fehler beim Laden</div>
+          <div class="empty-desc">${escapeHtml(e.message)}</div>
+        </div>
+      `;
+    }
+  }
+
+  async function loadConversationDetail(bookingId) {
+    qs("#convDetailMeta").textContent = "Lade...";
+    try {
+      const res = await apiGet("/conversations/" + bookingId, {
+        include: "messages",
+        messages_limit: 200,
+        messages_offset: 0
+      });
+      
+      // Update header
+      const headerAvatar = qs(".chat-window .chat-avatar");
+      const headerName = qs(".chat-header-name");
+      
+      headerAvatar.textContent = (res.guest_name || "G").substring(0,2).toUpperCase();
+      headerName.textContent = `${res.guest_name || "Gast"} • ${res.property_name || "Property"}`;
+      qs("#convDetailMeta").textContent = `#${res.smoobu_booking_id} • ${res.reply_needed ? "Antwort erforderlich" : "Beantwortet"}`;
+      
+      renderMessages(res.messages || [], res);
+    } catch (e) {
+      qs("#convDetailMeta").textContent = "Fehler: " + e.message;
+    }
+  }
+
+  async function loadProperties() {
+    try {
+      const res = await apiGet("/properties", { limit: 10, offset: 0 });
+      qs("#propertiesOut").textContent = JSON.stringify(res.items || [], null, 2);
+    } catch (e) {
+      qs("#propertiesOut").textContent = "Fehler: " + e.message;
+    }
+  }
+
+  async function loadBookings() {
+    try {
+      const res = await apiGet("/bookings", { limit: 10, offset: 0 });
+      qs("#bookingsOut").textContent = JSON.stringify(res.items || [], null, 2);
+    } catch (e) {
+      qs("#bookingsOut").textContent = "Fehler: " + e.message;
+    }
+  }
+
+  // ========== System Check ==========
+  async function systemCheck() {
+    const out = [];
+    try {
+      out.push("🔍 Starte System Check...\n");
+      
+      out.push("✅ /health");
+      await apiGet("/health", { debug: 1 });
+      
+      out.push("✅ /properties");
+      await apiGet("/properties", { limit: 5 });
+      
+      out.push("✅ /bookings");
+      await apiGet("/bookings", { limit: 5 });
+      
+      out.push("✅ /conversations");
+      const conv = await apiGet("/conversations", { limit: 5, include: "messages_preview" });
+      const first = (conv.items && conv.items[0]) ? conv.items[0].smoobu_booking_id : null;
+      
+      if (first) {
+        out.push("✅ /conversations/<id>");
+        await apiGet("/conversations/" + first, { include: "messages", messages_limit: 20 });
+      } else {
+        out.push("ℹ️  Keine Konversationen zum Testen");
+      }
+      
+      qs("#settingsOut").textContent = out.join("\n") + "\n\n🎉 ALLE CHECKS BESTANDEN";
+    } catch (e) {
+      qs("#settingsOut").textContent = out.join("\n") + "\n\n❌ FEHLER: " + String(e?.message || e);
+    }
+  }
+
+  // ========== Boot ==========
+  async function boot() {
+    const cfg = getCfg();
+    qs("#setSupabaseUrl").value = cfg.url || "";
+    qs("#setSupabaseAnon").value = cfg.anon || "";
+    qs("#setOrgId").value = cfg.org || "";
+
+    try {
+      const sb = ensureSupabase();
+      const { data: sess } = await sb.auth.getSession();
+      const session = sess?.session;
+
+      if (!session) {
+        setAuthUI({userEmail: null, orgId: cfg.org || ""});
+        showAuthOverlay("Bitte einloggen");
+        return;
+      }
+
+      setAuthUI({userEmail: session.user?.email || session.user?.id, orgId: cfg.org || ""});
+      hideAuthOverlay();
+      
+      showView("conversations");
+      await loadConversations();
+    } catch (e) {
+      showAuthOverlay("Konfiguration fehlt - öffne Settings");
+      showView("settings");
+    }
+  }
+
+  // ========== Event Listeners ==========
+  qsa(".nav-item").forEach(el => {
+    el.addEventListener("click", async () => {
+      const v = el.dataset.view;
+      showView(v);
+      try {
+        if (v === "conversations") await loadConversations();
+        if (v === "properties") await loadProperties();
+        if (v === "bookings") await loadBookings();
+      } catch (e) {
+        console.error(e);
+      }
+    });
+  });
+
+  qs("#refreshBtn").addEventListener("click", async () => {
+    const active = qs(".nav-item.active")?.dataset.view || "conversations";
+    try {
+      if (active === "conversations") await loadConversations();
+      if (active === "properties") await loadProperties();
+      if (active === "bookings") await loadBookings();
+    } catch (e) {
+      console.error(e);
+    }
+  });
+
+  qs("#logoutBtn").addEventListener("click", logout);
+
+  qs("#authLoginBtn").addEventListener("click", () => {
+    const email = qs("#authEmail").value.trim();
+    const pass = qs("#authPassword").value;
+    const org = qs("#authOrgId").value.trim();
+    login(email, pass, org);
+  });
+
+  qs("#saveSettingsBtn").addEventListener("click", () => {
+    const url = qs("#setSupabaseUrl").value.trim();
+    const anon = qs("#setSupabaseAnon").value.trim();
+    const org = qs("#setOrgId").value.trim();
+    setCfg({url, anon, org});
+    qs("#settingsOut").textContent = "✅ Gespeichert. Seite neu laden für Änderungen.";
+  });
+
+  qs("#systemCheckBtn").addEventListener("click", systemCheck);
+
+  // Enter key for login
+  qs("#authPassword").addEventListener("keypress", (e) => {
+    if (e.key === "Enter") qs("#authLoginBtn").click();
+  });
+
+  // Auto-boot
+  boot().catch(e => {
+    console.error(e);
+    qs("#loading").style.display = "none";
+    showAuthOverlay("Fehler beim Starten");
+  });
+})();
+</script>
+
+
+<!-- === PilotStay Login Patch (Supabase + JWT) === -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(async function(){
+  try {
+    const SUPABASE_URL = localStorage.getItem("SUPABASE_URL") || window.SUPABASE_URL || "";
+    const SUPABASE_ANON_KEY = localStorage.getItem("SUPABASE_ANON_KEY") || window.SUPABASE_ANON_KEY || "";
+
+    if(!SUPABASE_URL || !SUPABASE_ANON_KEY){
+      console.warn("Supabase config missing. Open Settings and save URL + ANON KEY once.");
+      return;
+    }
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    function findLoginElements(){
+      const email = document.querySelector('input[type="email"]');
+      const pass  = document.querySelector('input[type="password"]');
+      const btns  = Array.from(document.querySelectorAll('button'));
+      const loginBtn = btns.find(b => (b.innerText||"").toLowerCase().includes("einloggen") || (b.innerText||"").toLowerCase().includes("login"));
+      return { email, pass, loginBtn };
+    }
+
+    async function doLogin(){
+      const { email, pass } = findLoginElements();
+      if(!email || !pass) return alert("Login-Felder nicht gefunden.");
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.value.trim(),
+        password: pass.value
+      });
+
+      if(error){
+        alert("Login fehlgeschlagen: " + error.message);
+        return;
+      }
+
+      const jwt = data?.session?.access_token;
+      if(!jwt){
+        alert("Kein JWT erhalten.");
+        return;
+      }
+
+      localStorage.setItem("ps_jwt", jwt);
+
+      // resolve org automatically
+      const base = "https://wpazgwphsdhddjdgkrgt.supabase.co/functions/v1/api-dashboard";
+      const res = await fetch(base + "/health", {
+        headers: { "Authorization": "Bearer " + jwt }
+      });
+      const j = await res.json();
+      if(j?.org_id){
+        localStorage.setItem("ps_org_id", j.org_id);
+      }
+
+      window.location.href = "/host-dashboard.html";
+    }
+
+    function wire(){
+      const { loginBtn } = findLoginElements();
+      if(loginBtn && !loginBtn.__ps_wired){
+        loginBtn.__ps_wired = true;
+        loginBtn.addEventListener("click", doLogin);
+      }
+    }
+
+    const mo = new MutationObserver(wire);
+    mo.observe(document.body, { childList:true, subtree:true });
+    wire();
+
+  } catch(e){
+    console.error("Login patch error:", e);
+  }
+})();
+</script>
+<!-- === /PilotStay Login Patch === -->
+
+</body>
+</html>
