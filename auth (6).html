@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PilotStay - Login</title>
+  <meta name="robots" content="noindex,nofollow" />
+  <style>
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b0f17;color:#e7eaf0;}
+    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;}
+    .card{max-width:520px;width:100%;background:#121a2a;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:24px;box-shadow:0 12px 30px rgba(0,0,0,.35);}
+    h1{margin:0 0 8px 0;font-size:20px;font-weight:700;}
+    p{margin:0;color:rgba(231,234,240,.8);line-height:1.4}
+    code{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px}
+    .btn{margin-top:16px;display:inline-flex;align-items:center;gap:8px;background:#2b5cff;color:white;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .muted{margin-top:10px;font-size:12px;color:rgba(231,234,240,.6)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Weiterleitung zum PilotStay Dashboard…</h1>
+      <p>
+        Diese Seite existiert nur, damit alte Links wie <code>/auth.html</code> nicht auf 404 laufen.
+        Das Login passiert direkt im Dashboard.
+      </p>
+      <button class="btn" id="go">Zum Dashboard</button>
+      <div class="muted" id="hint"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Optional: preserve ?redirect=/something
+      const u = new URL(location.href);
+      const redirect = u.searchParams.get("redirect") || "/";
+      const target = "/" + (redirect.startsWith("/") ? redirect.slice(1) : redirect);
+      const go = () => location.replace(target);
+      document.getElementById("go").addEventListener("click", go);
+
+      // Auto-redirect quickly
+      document.getElementById("hint").textContent = "Wenn nichts passiert, klicke den Button.";
+      setTimeout(go, 400);
+    })();
+  </script>
+</body>
+</html>
