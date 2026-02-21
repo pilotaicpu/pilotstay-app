@@ -96,8 +96,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 </div>
 
 <script>
-const SUPABASE_URL = "https://REPLACE.supabase.co";
-const SUPABASE_ANON = "REPLACE_PUBLIC_ANON_KEY";
+const SUPABASE_URL = "https://wpazgwphsdhddjdgkrgt.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwYXpnd3Boc2RoZGRqZGdrcmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NTA3NzUsImV4cCI6MjA4NDIyNjc3NX0.1qdK_o7fhNJGT_wdWnHfBbITK0Dw1xIt5zBCI9-KT7I";
 const sb = supabase.createClient(SUPABASE_URL,SUPABASE_ANON);
 
 function showLogin(){loginBox.style.display="block";regBox.style.display="none";tabLogin.classList.add("active");tabRegister.classList.remove("active")}
@@ -150,51 +150,6 @@ const {data:{session}}=await sb.auth.getSession();
 if(session){bootstrap(session.user)}
 })();
 </script>
-<script>
-const SUPABASE_URL = "https://wpazgwphsdhddjdgkrgt.supabase.co";
-const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwYXpnd3Boc2RoZGRqZGdrcmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NTA3NzUsImV4cCI6MjA4NDIyNjc3NX0.1qdK_o7fhNJGT_wdWnHfBbITK0Dw1xIt5zBCI9-KT7I";
 
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-
-// LOGIN
-document.getElementById("authLoginBtn")?.addEventListener("click", async () => {
-  const email = document.getElementById("authEmail").value;
-  const password = document.getElementById("authPassword").value;
-  const errorBox = document.getElementById("authError");
-
-  const { data, error } = await supabaseClient.auth.signInWithPassword({
-    email,
-    password
-  });
-
-  if(error){
-    errorBox.style.display = "block";
-    errorBox.innerText = error.message;
-    return;
-  }
-
-  location.reload();
-});
-
-// REGISTER (falls vorhanden)
-document.getElementById("authRegisterBtn")?.addEventListener("click", async () => {
-  const email = document.getElementById("authEmail").value;
-  const password = document.getElementById("authPassword").value;
-  const errorBox = document.getElementById("authError");
-
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password
-  });
-
-  if(error){
-    errorBox.style.display = "block";
-    errorBox.innerText = error.message;
-    return;
-  }
-
-  alert("Registrierung erfolgreich. Bitte E-Mail bestätigen.");
-});
-</script>
 </body>
 </html>
