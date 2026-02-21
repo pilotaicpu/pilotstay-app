@@ -150,6 +150,51 @@ const {data:{session}}=await sb.auth.getSession();
 if(session){bootstrap(session.user)}
 })();
 </script>
+<script>
+const SUPABASE_URL = "https://wpazgwphsdhddjdgkrgt.supabase.co";
+const SUPABASE_ANON = "DEIN_PUBLIC_ANON_KEY";
 
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// LOGIN
+document.getElementById("authLoginBtn")?.addEventListener("click", async () => {
+  const email = document.getElementById("authEmail").value;
+  const password = document.getElementById("authPassword").value;
+  const errorBox = document.getElementById("authError");
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if(error){
+    errorBox.style.display = "block";
+    errorBox.innerText = error.message;
+    return;
+  }
+
+  location.reload();
+});
+
+// REGISTER (falls vorhanden)
+document.getElementById("authRegisterBtn")?.addEventListener("click", async () => {
+  const email = document.getElementById("authEmail").value;
+  const password = document.getElementById("authPassword").value;
+  const errorBox = document.getElementById("authError");
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password
+  });
+
+  if(error){
+    errorBox.style.display = "block";
+    errorBox.innerText = error.message;
+    return;
+  }
+
+  alert("Registrierung erfolgreich. Bitte E-Mail bestätigen.");
+});
+</script>
 </body>
 </html>
